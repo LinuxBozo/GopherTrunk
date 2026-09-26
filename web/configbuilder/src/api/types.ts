@@ -254,6 +254,8 @@ export interface ConvChannelConfig {
   Priority: number;
   TalkgroupID: number;
   Tone: ConvToneConfig;
+  // Data decoders run on the channel's dwell: "mdc1200" | "fleetsync" (#1220).
+  Decoders: string[] | null;
 }
 
 export interface ScannerConfig {

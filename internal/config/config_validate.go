@@ -777,6 +777,18 @@ func validateConvChannel(i int, ch ConvChannelConfig) error {
 	default:
 		return fmt.Errorf("scanner.conventional[%d].tone.mode must be ctcss|dcs|none", i)
 	}
+	seen := map[string]bool{}
+	for _, d := range ch.Decoders {
+		switch d {
+		case "mdc1200", "fleetsync":
+		default:
+			return fmt.Errorf("scanner.conventional[%d].decoders: %q must be mdc1200|fleetsync", i, d)
+		}
+		if seen[d] {
+			return fmt.Errorf("scanner.conventional[%d].decoders: %q listed twice", i, d)
+		}
+		seen[d] = true
+	}
 	return nil
 }
 

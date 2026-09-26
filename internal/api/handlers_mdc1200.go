@@ -28,19 +28,26 @@ type MDC1200MessageDTO struct {
 	Body       string    `json:"body,omitempty"`
 	RawHex     string    `json:"raw_hex,omitempty"`
 	CRCOK      bool      `json:"crc_ok"`
+	// Serial / FrequencyHz: the receiver that decoded the burst — an
+	// mdc1200.channels entry or the scanner.conventional channel it came in
+	// on (#1220); omitted for rows logged before they were recorded.
+	Serial      string `json:"serial,omitempty"`
+	FrequencyHz uint32 `json:"frequency_hz,omitempty"`
 }
 
 func mdc1200MessageToDTO(m storage.MDC1200Message) MDC1200MessageDTO {
 	return MDC1200MessageDTO{
-		ID:         m.ID,
-		ReceivedAt: m.ReceivedAt,
-		Op:         m.Op,
-		Arg:        m.Arg,
-		UnitID:     m.UnitID,
-		Operation:  m.Operation,
-		Body:       m.Body,
-		RawHex:     m.RawHex,
-		CRCOK:      m.CRCOK,
+		ID:          m.ID,
+		ReceivedAt:  m.ReceivedAt,
+		Op:          m.Op,
+		Arg:         m.Arg,
+		UnitID:      m.UnitID,
+		Operation:   m.Operation,
+		Body:        m.Body,
+		RawHex:      m.RawHex,
+		CRCOK:       m.CRCOK,
+		Serial:      m.Serial,
+		FrequencyHz: m.FrequencyHz,
 	}
 }
 

@@ -311,13 +311,20 @@ func (r *Receiver) feedSymbol(s float32) {
 }
 
 // Reset clears every stage's state so a retune or stream restart does
-// not bleed the previous stream's filter history into the next.
+// not bleed the previous stream's filter history into the next — the
+// framer included, so a burst cut off by the retune is abandoned rather
+// than completed from the next channel's bits.
 func (r *Receiver) Reset() {
 	r.fm.Reset()
 	r.rsmp.Reset()
 	r.ffsk.Reset()
 	r.mm = dspsync.NewMuellerMuller(float64(Oversample), mmGain)
+	r.framer.Reset()
 }
+
+// Busy reports whether a burst is part-way through framing (see
+// fleetsync.Framer.Busy).
+func (r *Receiver) Busy() bool { return r.framer.Busy() }
 
 // Framer returns the protocol framer the front end is driving, for its
 // Stats().

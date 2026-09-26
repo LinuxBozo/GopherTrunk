@@ -74,6 +74,32 @@ Like the other message decoders, FleetSync needs `storage.path` set —
 without it the receiver runs but nothing is persisted, the REST endpoint
 answers 503 and the panel stays empty (`gophertrunk doctor` warns).
 
+### On a conventional scanner channel (no dedicated SDR)
+
+A channel the conventional scanner already monitors can run the decoder on
+its own IQ instead (issue #1220):
+
+```yaml
+scanner:
+  conventional:
+    - label: "Kenwood fleet"
+      frequency_hz: 462_562_500
+      mode: nfm
+      decoders: [fleetsync]   # and/or mdc1200
+```
+
+The scanner decimates its IQ to one ~48 kHz channel (behind a ±8 kHz
+channel filter) before the decoder sees it, so the decoder works the same
+at any SDR sample rate. It runs on every chunk that opens the channel's
+squelch and on the whole dwell; a burst whose sync word has been heard
+holds the channel until it is framed, so the scanner neither hops away nor
+ends the call on hangtime mid-burst. The CTCSS/DCS gate does not apply: a
+burst carries its own sync word and check, so it is logged even when the
+tone gate stays shut. Bursts are stamped with the scanner's SDR serial and
+the channel frequency (the panel's Channel column). A burst sent while the
+scanner is on another channel is missed — that is the trade against
+pinning an SDR.
+
 ## What's surfaced
 
 - **Bus event** — `events.KindFleetSyncMessage` (`fleetsync.message`

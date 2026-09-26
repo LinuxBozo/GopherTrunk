@@ -112,3 +112,47 @@ func TestFramerReframesAfterBurst(t *testing.T) {
 		t.Errorf("fleets = %d, %d, want 150, 199", got[0].Fleet, got[1].Fleet)
 	}
 }
+
+// Busy is true from the preamble+sync lock until the payload is framed —
+// the window in which the conventional scanner holds the channel (#1220).
+func TestFramerBusyWhileCapturing(t *testing.T) {
+	payload, _ := buildFS1Frame(t, 0x0000_337D, 0x2F00)
+	var got []Message
+	f := NewFramer(func(m Message) { got = append(got, m) })
+	pushBitsMSB(f, 0xAAAAAAAA, 32, false)
+	pushBitsMSB(f, uint64(SyncWord)>>1, SyncBits-1, false)
+	if f.Busy() {
+		t.Fatal("Busy before the sync word completed")
+	}
+	pushBitsMSB(f, uint64(SyncWord)&1, 1, false)
+	if !f.Busy() {
+		t.Fatal("not Busy after the sync lock")
+	}
+	pushSlice(f, payload[:len(payload)-1], false)
+	if !f.Busy() {
+		t.Fatal("not Busy one bit before the payload completes")
+	}
+	pushSlice(f, payload[len(payload)-1:], false)
+	if f.Busy() || len(got) != 1 {
+		t.Fatalf("after the payload: Busy=%v, messages=%d; want false, 1", f.Busy(), len(got))
+	}
+}
+
+// Reset abandons a burst in progress: a retune must not let a burst cut
+// off on one channel frame the next channel's bits as its payload (#1220).
+func TestFramerResetAbandonsPartialBurst(t *testing.T) {
+	payload, _ := buildFS1Frame(t, 0x0000_337D, 0x2F00)
+	var got []Message
+	f := NewFramer(func(m Message) { got = append(got, m) })
+	pushBitsMSB(f, 0xAAAAAAAA, 32, false)
+	pushBitsMSB(f, uint64(SyncWord), SyncBits, false)
+	pushSlice(f, payload[:len(payload)/2], false)
+	f.Reset()
+	if f.Busy() {
+		t.Fatal("Busy after Reset")
+	}
+	pushSlice(f, payload[len(payload)/2:], false)
+	if len(got) != 0 {
+		t.Fatalf("framed %d bursts from the abandoned half-burst", len(got))
+	}
+}

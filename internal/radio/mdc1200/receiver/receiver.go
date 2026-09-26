@@ -63,6 +63,9 @@ type Receiver struct {
 	n        int             // bits captured into buf
 	first    mdc1200.Message // first block of a double packet
 
+	serial string // Options.Serial, stamped on every published message
+	freqHz uint32 // Options.FrequencyHz, likewise
+
 	// Counters surfaced for /metrics.
 	burstsIn   atomic.Uint64 // sync words detected
 	burstsCRC  atomic.Uint64 // bursts that failed CRC
@@ -76,6 +79,14 @@ type Options struct {
 
 	// DropBadCRC silently discards CRC-failed bursts when true.
 	DropBadCRC bool
+
+	// Serial and FrequencyHz identify the SDR and channel feeding this
+	// receiver; both are stamped on every published storage.MDC1200Message
+	// so the log, REST endpoint and panel can say which channel produced a
+	// burst (#1220 — a conventional scanner hops between channels on one
+	// SDR, so the serial alone cannot). Optional.
+	Serial      string
+	FrequencyHz uint32
 }
 
 // New constructs a Receiver. Panics if opts.Bus is nil — receivers
@@ -84,7 +95,7 @@ func New(opts Options) *Receiver {
 	if opts.Bus == nil {
 		panic("mdc1200/receiver: events.Bus is required")
 	}
-	return &Receiver{bus: opts.Bus, dropBadCRC: opts.DropBadCRC}
+	return &Receiver{bus: opts.Bus, dropBadCRC: opts.DropBadCRC, serial: opts.Serial, freqHz: opts.FrequencyHz}
 }
 
 // Push feeds one NRZ wire bit through the framer. Bits outside {0, 1}
@@ -168,17 +179,30 @@ func (r *Receiver) emit(msg mdc1200.Message) {
 		Kind:      events.KindMDC1200Message,
 		Timestamp: time.Now(),
 		Payload: storage.MDC1200Message{
-			Op:        msg.Op,
-			Arg:       msg.Arg,
-			UnitID:    msg.UnitID,
-			Operation: msg.Operation,
-			Body:      msg.Body,
-			RawHex:    msg.RawHex,
-			CRCOK:     msg.CRCOK,
+			Op:          msg.Op,
+			Arg:         msg.Arg,
+			UnitID:      msg.UnitID,
+			Operation:   msg.Operation,
+			Body:        msg.Body,
+			RawHex:      msg.RawHex,
+			CRCOK:       msg.CRCOK,
+			Serial:      r.serial,
+			FrequencyHz: r.freqHz,
 		},
 	})
 	r.burstsEmit.Add(1)
 }
+
+// Busy reports whether the framer has locked a sync word and is part-way
+// through capturing a burst (either block of a double packet). A caller
+// that owns the RF channel (the conventional scanner's dwell, #1220) holds
+// the channel while this is true, so a burst is not cut off mid-frame.
+func (r *Receiver) Busy() bool { return r.st != stateHunt }
+
+// Reset abandons any burst in progress and returns to the sync hunt. A
+// front end calls it on a retune so a burst cut off on one channel cannot
+// swallow the next channel's bits as its payload.
+func (r *Receiver) Reset() { r.reset() }
 
 // reset returns the framer to the sync hunt with a cleared shift
 // register so the just-decoded burst can't immediately re-trigger.

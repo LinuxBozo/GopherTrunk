@@ -1781,6 +1781,17 @@ confirmation before any close-as-completed.
   only `tone.dcs_polarity` (normal default | inverted | both); the other sense is
   tracked only to WARN once per channel on an N/I mismatch. Aliasing is inherent:
   a normal 023 gate still opens on 047I (same bits) — do not "fix" that.
+- **MDC1200 / FleetSync on `scanner.conventional` channels (#1220) run behind the scanner's
+  OWN channel front end, never on its raw IQ.** `conventional/data.go`: `decoders: [mdc1200,
+  fleetsync]` on a scan-list entry → `Options.DataDecoders` (daemon factory
+  `conv_decoders.go`, same afsk receivers + bus kinds as the dedicated-SDR sections, stamped
+  scanner serial + channel frequency). `dataFrontEnd` integer-decimates to ~48 kHz (an m that
+  divides the SDR rate so the decoders' L/M resamplers stay small: 2.4 MS/s→48 k, 2.048 MS/s→51.2 k)
+  behind a ±8 kHz channel filter. Measured on the #1184 real-air FleetSync slices at 2.4 MS/s with
+  band-wide noise at 0 dB: raw IQ into the receiver 0/2 bursts, through the front end 2/2. A decoder that has locked sync (`Busy`) extends the scan window (≤500 ms) and counts as
+  dwell activity (hangtime can't cut a burst); the framers are Reset on every retune so a cut-off
+  burst can't frame the next channel's bits. Decoders ignore the CTCSS/DCS gate by design.
+  On-air-gated (#764/#771): the reporter's Kenwood lab run is the confirmation.
 - **A detector threshold in radians-per-sample is a SAMPLE-RATE trap (#1184 CTCSS).** The
   conventional scanner's CTCSS gate never opened on air: its Goertzel threshold was calibrated
   on 48 kHz unit tests, but the scanner feeds 2.4 MS/s, where the same deviation is 50x smaller

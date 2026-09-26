@@ -1774,6 +1774,7 @@ func NewDaemonWithPath(cfg config.Config, cfgPath string, version string, log *s
 						DCSCode:     ch.Tone.DCSCode,
 						DCSPolarity: ch.Tone.DCSPolarity,
 					},
+					Decoders: ch.Decoders,
 				})
 			}
 			var convRec conventional.Recorder = d.recorder
@@ -1820,6 +1821,11 @@ func NewDaemonWithPath(cfg config.Config, cfgPath string, version string, log *s
 				SystemName:   "scanner",
 				Channels:     channels,
 				SampleRateHz: float64(cfg.SDR.SampleRate),
+				// MDC1200 / FleetSync on the scan list's own channels
+				// (issue #1220): decoded bursts publish on the same bus
+				// kinds as the dedicated-SDR receivers, stamped with this
+				// scanner's serial and the channel's frequency.
+				DataDecoders: convDataDecoderFactory(d.bus, convEntry.Info.Serial, log),
 			})
 			if err != nil {
 				return nil, fmt.Errorf("daemon: conv scanner: %w", err)

@@ -12,6 +12,11 @@ export interface MDC1200Message {
   body?: string;
   raw_hex?: string;
   crc_ok: boolean;
+  /** SDR serial of the receiver that decoded the burst — an mdc1200.channels
+   * entry or the conventional-scanner SDR (#1220). */
+  serial?: string;
+  /** That receiver's channel frequency in Hz. */
+  frequency_hz?: number;
 }
 
 export async function fetchMDC1200Messages(

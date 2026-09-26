@@ -23,6 +23,12 @@ type MDC1200Message struct {
 	Body       string    `json:"body"`
 	RawHex     string    `json:"raw_hex"`
 	CRCOK      bool      `json:"crc_ok"`
+	// Serial and FrequencyHz name the receiver that decoded the burst —
+	// the mdc1200.channels entry, or the scanner.conventional channel the
+	// scanner was dwelling on (#1220) — so an operator can tell which
+	// channel produced an ID. Zero on rows written before they existed.
+	Serial      string `json:"serial"`
+	FrequencyHz uint32 `json:"frequency_hz"`
 }
 
 // MDC1200Log drains KindMDC1200Message events until ctx cancels or the
@@ -58,10 +64,10 @@ func (m *MDC1200Log) insert(msg MDC1200Message) error {
 	}
 	_, err := m.db.SQL().Exec(
 		`INSERT INTO mdc1200_log
-		 (received_at, op, arg, unit_id, operation, body, raw_hex, crc_ok)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		 (received_at, op, arg, unit_id, operation, body, raw_hex, crc_ok, serial, frequency_hz)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		at.UnixNano(), msg.Op, msg.Arg, msg.UnitID, msg.Operation,
-		msg.Body, msg.RawHex, crcOK,
+		msg.Body, msg.RawHex, crcOK, msg.Serial, int64(msg.FrequencyHz),
 	)
 	return err
 }
@@ -77,7 +83,7 @@ func (m *MDC1200Log) Recent(limit int) ([]MDC1200Message, error) {
 	}
 	rows, err := m.db.SQL().Query(
 		`SELECT id, received_at, op, arg, unit_id, operation, body,
-		        raw_hex, crc_ok
+		        raw_hex, crc_ok, serial, frequency_hz
 		 FROM mdc1200_log ORDER BY received_at DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("storage/mdc1200log: query: %w", err)
@@ -92,9 +98,10 @@ func (m *MDC1200Log) Recent(limit int) ([]MDC1200Message, error) {
 			arg   int
 			unit  int
 			crcOK int
+			freq  int64
 		)
 		if err := rows.Scan(&msg.ID, &ns, &op, &arg, &unit, &msg.Operation,
-			&msg.Body, &msg.RawHex, &crcOK); err != nil {
+			&msg.Body, &msg.RawHex, &crcOK, &msg.Serial, &freq); err != nil {
 			return nil, fmt.Errorf("storage/mdc1200log: scan: %w", err)
 		}
 		msg.ReceivedAt = time.Unix(0, ns)
@@ -102,6 +109,7 @@ func (m *MDC1200Log) Recent(limit int) ([]MDC1200Message, error) {
 		msg.Arg = uint8(arg)
 		msg.UnitID = uint16(unit)
 		msg.CRCOK = crcOK != 0
+		msg.FrequencyHz = uint32(freq)
 		out = append(out, msg)
 	}
 	return out, rows.Err()

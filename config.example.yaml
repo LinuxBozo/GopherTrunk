@@ -1379,6 +1379,14 @@ scanner:
   #       ctcss_hz: 100.0    # required for ctcss
   #       # dcs_code: "023"  # required for dcs (3-digit octal)
   #       # dcs_polarity: normal  # normal (radio "D023N", default) | inverted ("D023I") | both
+  #     # Optional data decoders run on this channel's IQ while the
+  #     # scanner is on it (#1220): MDC1200 and/or Kenwood FleetSync ANI.
+  #     # Bursts land in the same log, REST endpoint and web panel as the
+  #     # mdc1200.channels / fleetsync.channels receivers, tagged with this
+  #     # channel's frequency, so no SDR has to be dedicated to them. A
+  #     # decoder that is mid-burst holds the channel until the burst ends.
+  #     # Needs storage.path to persist the log.
+  #     # decoders: [mdc1200, fleetsync]
 
 # audio routes decoded PCM to the host's speakers. Disabled by default;
 # WAV recording is unaffected and continues whether audio is on or off.

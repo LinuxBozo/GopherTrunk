@@ -10,7 +10,8 @@ import { formatClock } from "../lib/formatTime";
 
 // MDC1200 panel — list of recent decoded Motorola FFSK signaling
 // bursts off conventional analog voice channels. Each row shows the
-// transmitting radio's unit ID, the decoded operation (PTT ID,
+// transmitting radio's unit ID, the channel (frequency + SDR serial) it
+// came in on, the decoded operation (PTT ID,
 // emergency, status, radio check, ...) and whether the CRC validated.
 //
 // Polls /api/v1/mdc1200/messages every 5 s.
@@ -45,6 +46,20 @@ export function MDC1200() {
           <span className="font-mono text-accent">{unitHex(m.unit_id)}</span>
         ),
         sort: (a, b) => a.unit_id - b.unit_id,
+      },
+      {
+        key: "channel",
+        header: "Channel",
+        render: (m) =>
+          m.frequency_hz ? (
+            <span className="font-mono" title={m.serial ? `SDR ${m.serial}` : undefined}>
+              {(m.frequency_hz / 1e6).toFixed(4)} MHz
+              {m.serial ? <span className="text-muted"> · {m.serial}</span> : null}
+            </span>
+          ) : (
+            <span className="text-muted">—</span>
+          ),
+        sort: (a, b) => (a.frequency_hz ?? 0) - (b.frequency_hz ?? 0),
       },
       {
         key: "operation",

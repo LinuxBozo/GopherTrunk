@@ -478,6 +478,7 @@ export function ScannerSection() {
             Priority: 0,
             TalkgroupID: 0,
             Tone: { Mode: "", CTCSSHz: 0, DCSCode: "", DCSPolarity: "" },
+            Decoders: null,
           })}
           itemTitle={(ch) => ch.Label || "channel"}
           emptyHint="Fixed-frequency analog channels the scanner sweeps alongside trunking."
@@ -502,6 +503,13 @@ export function ScannerSection() {
                 <NumberField label="Squelch hysteresis (dB)" step={0.1} value={ch.SquelchHysteresisDb} onChange={(x) => setCh({ ...ch, SquelchHysteresisDb: x })} />
                 <NumberField label="Priority" value={ch.Priority} onChange={(x) => setCh({ ...ch, Priority: x })} />
                 <NumberField label="Talkgroup ID (0 = positional)" value={ch.TalkgroupID} onChange={(x) => setCh({ ...ch, TalkgroupID: x })} />
+                <TextField
+                  label="Data decoders"
+                  value={formatCommaList(ch.Decoders)}
+                  onChange={(x) => setCh({ ...ch, Decoders: parseCommaList(x) })}
+                  placeholder="mdc1200, fleetsync"
+                  help="MDC1200 / FleetSync decoded on this channel while the scanner is on it (comma-separated). Empty = none."
+                />
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <SelectField
