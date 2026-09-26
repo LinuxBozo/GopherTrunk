@@ -364,7 +364,9 @@ CREATE TABLE IF NOT EXISTS mdc1200_log (
     operation   TEXT    NOT NULL DEFAULT '',  -- "PTT ID" | "Emergency" | ... ("" if unknown)
     body        TEXT    NOT NULL DEFAULT '',  -- one-line summary
     raw_hex     TEXT    NOT NULL DEFAULT '',  -- hex of the decoded header bytes
-    crc_ok      INTEGER NOT NULL DEFAULT 0    -- 1 when the CRC validated
+    crc_ok      INTEGER NOT NULL DEFAULT 0,   -- 1 when the CRC validated
+    serial      TEXT    NOT NULL DEFAULT '',  -- SDR serial of the receiver that decoded it
+    frequency_hz INTEGER NOT NULL DEFAULT 0   -- channel frequency of that receiver
 );
 
 CREATE INDEX IF NOT EXISTS idx_mdc1200_log_time    ON mdc1200_log(received_at);
@@ -410,6 +412,15 @@ func (d *DB) migrate() error {
 	if err := d.ensureColumns("fleetsync_log", []columnAdd{
 		{"serial", `ALTER TABLE fleetsync_log ADD COLUMN serial TEXT NOT NULL DEFAULT ''`},
 		{"frequency_hz", `ALTER TABLE fleetsync_log ADD COLUMN frequency_hz INTEGER NOT NULL DEFAULT 0`},
+	}); err != nil {
+		return err
+	}
+	// mdc1200_log gained the same channel identity when MDC1200 learned to
+	// decode on scanner.conventional channels (#1220): one scanner SDR hops
+	// between channels, so a burst needs its frequency to be attributable.
+	if err := d.ensureColumns("mdc1200_log", []columnAdd{
+		{"serial", `ALTER TABLE mdc1200_log ADD COLUMN serial TEXT NOT NULL DEFAULT ''`},
+		{"frequency_hz", `ALTER TABLE mdc1200_log ADD COLUMN frequency_hz INTEGER NOT NULL DEFAULT 0`},
 	}); err != nil {
 		return err
 	}

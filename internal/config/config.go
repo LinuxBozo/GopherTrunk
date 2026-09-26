@@ -618,6 +618,14 @@ type ConvChannelConfig struct {
 	// Tone is the optional CTCSS / DCS sub-audible squelch gate.
 	// Zero / "none" disables tone gating (default).
 	Tone ConvToneConfig `yaml:"tone"`
+	// Decoders names the data decoders to run on this channel's IQ while
+	// the scanner is on it: "mdc1200" and/or "fleetsync". Decoded bursts
+	// land in the same log / REST endpoint / web panel as the
+	// mdc1200.channels / fleetsync.channels receivers, stamped with this
+	// channel's frequency — no dedicated SDR needed. A decoder that is
+	// mid-burst holds the channel so the burst is not cut off. Empty (the
+	// default) runs none. Issue #1220.
+	Decoders []string `yaml:"decoders"`
 }
 
 // ConvToneConfig configures CTCSS / DCS gating for one conventional

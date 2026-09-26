@@ -388,6 +388,7 @@ var fieldMetas = map[string]FieldMeta{
 	"ConvChannelConfig.Priority":            {Help: "Scan priority 1–10 (higher wins). 0 = unset."},
 	"ConvChannelConfig.TalkgroupID":         {Label: "Talkgroup ID", Help: "Fixed talkgroup ID this channel surfaces under (API, call log, Rdio Scanner / OpenMHz / Broadcastify uploads). 0 = positional default (0x80000000 | list index), which shifts when the channel list is edited — pin an ID to keep talkgroup_file roster rows durable."},
 	"ConvChannelConfig.Tone":                {Help: "Optional CTCSS/DCS sub-audible squelch gate."},
+	"ConvChannelConfig.Decoders":            {Help: "Data decoders to run on this channel while the scanner is on it: mdc1200 and/or fleetsync. Bursts land in the MDC1200 / FleetSync logs and panels with this channel's frequency — no dedicated SDR needed. Empty = none."},
 	"ConvToneConfig.Mode":                   {Help: "Sub-audible gate: none, ctcss, or dcs.", Options: opts("", "none", "none", "none", "ctcss", "ctcss", "dcs", "dcs")},
 	"ConvToneConfig.CTCSSHz":                {Label: "CTCSS (Hz)", Help: "Target CTCSS frequency (50–300 Hz). Required when mode is ctcss."},
 	"ConvToneConfig.DCSCode":                {Label: "DCS code", Help: "3-digit octal DCS code. Required when mode is dcs."},

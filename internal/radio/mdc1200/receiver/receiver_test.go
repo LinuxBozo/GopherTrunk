@@ -200,3 +200,55 @@ func TestReceiverDoublePacket(t *testing.T) {
 		t.Errorf("BurstsEmitted = %d, want 1 (double packet → single event)", r.Stats().BurstsEmitted)
 	}
 }
+
+// Busy is true from the sync lock to the end of the burst, and every
+// published message carries the configured channel identity (#1220).
+func TestReceiverBusyAndChannelIdentity(t *testing.T) {
+	bus, sub := newTestBus(t)
+	r := New(Options{Bus: bus, Serial: "R2", FrequencyHz: 146_670_000})
+	b := burst(0x01, 0x80, 0x1234)
+	lock := 24 + mdc1200.SyncBits // bits up to and including the sync word
+	for i, bit := range b {
+		r.Push(bit)
+		switch {
+		case i < lock-1 && r.Busy():
+			t.Fatalf("Busy before the sync word completed (bit %d)", i)
+		case i >= lock-1 && i < len(b)-1 && !r.Busy():
+			t.Fatalf("not Busy mid-burst (bit %d)", i)
+		}
+	}
+	if r.Busy() {
+		t.Fatal("still Busy after the burst was emitted")
+	}
+	msg, ok := waitMsg(t, sub)
+	if !ok {
+		t.Fatal("no burst emitted")
+	}
+	if msg.Serial != "R2" || msg.FrequencyHz != 146_670_000 {
+		t.Errorf("serial=%q freq=%d, want R2 / 146670000", msg.Serial, msg.FrequencyHz)
+	}
+}
+
+// Reset abandons a burst in progress (#1220 retune).
+func TestReceiverResetAbandonsPartialBurst(t *testing.T) {
+	bus, _ := newTestBus(t)
+	r := New(Options{Bus: bus})
+	b := burst(0x01, 0x80, 0x1234)
+	half := 24 + mdc1200.SyncBits + mdc1200.FrameBits/2
+	for _, bit := range b[:half] {
+		r.Push(bit)
+	}
+	if !r.Busy() {
+		t.Fatal("not Busy mid-burst")
+	}
+	r.Reset()
+	if r.Busy() {
+		t.Fatal("Busy after Reset")
+	}
+	for _, bit := range b[half:] {
+		r.Push(bit)
+	}
+	if got := r.Stats().BurstsEmitted; got != 0 {
+		t.Fatalf("emitted %d bursts from the abandoned half-burst", got)
+	}
+}

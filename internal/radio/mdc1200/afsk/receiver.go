@@ -76,6 +76,12 @@ type Options struct {
 	// CRCOK=false so the web panel can flag marginal signals.
 	DropBadCRC bool
 
+	// Serial and FrequencyHz identify this receiver's SDR and channel;
+	// both are stamped on every published storage.MDC1200Message (#1220).
+	// Optional.
+	Serial      string
+	FrequencyHz uint32
+
 	// Log is optional; defaults to slog.Default.
 	Log *slog.Logger
 }
@@ -136,8 +142,10 @@ func New(opts Options) (*Receiver, error) {
 		ffsk:      demod.NewFFSK(float64(AudioRateHz), MarkHz, SpaceHz),
 		mm:        dspsync.NewMuellerMuller(float64(Oversample), mmGain),
 		inner: mdcrx.New(mdcrx.Options{
-			Bus:        opts.Bus,
-			DropBadCRC: opts.DropBadCRC,
+			Bus:         opts.Bus,
+			DropBadCRC:  opts.DropBadCRC,
+			Serial:      opts.Serial,
+			FrequencyHz: opts.FrequencyHz,
 		}),
 	}, nil
 }
@@ -156,14 +164,15 @@ func (r *Receiver) Process(ctx context.Context, in <-chan []complex64) error {
 			if !ok {
 				return nil
 			}
-			r.processChunk(chunk)
+			r.ProcessIQ(chunk)
 		}
 	}
 }
 
-// processChunk runs one IQ chunk through FM → resample → FFSK
-// discrimination → MM symbol-time recovery → slice → push.
-func (r *Receiver) processChunk(chunk []complex64) {
+// ProcessIQ runs one IQ chunk through FM → resample → FFSK
+// discrimination → MM symbol-time recovery → slice → push. Bursts
+// publish onto the bus before it returns.
+func (r *Receiver) ProcessIQ(chunk []complex64) {
 	r.samplesSeen.Add(uint64(len(chunk)))
 	r.demodBuf = r.fm.Process(r.demodBuf, chunk)
 	r.rsmpBuf = r.rsmp.Process(r.rsmpBuf, r.demodBuf)
@@ -190,6 +199,23 @@ func (r *Receiver) feedSymbol(s float32) {
 	}
 	r.inner.Push(bit)
 	r.bitsEmitted.Add(1)
+}
+
+// Busy reports whether a burst is part-way through framing (see
+// mdc1200/receiver.Receiver.Busy).
+func (r *Receiver) Busy() bool { return r.inner.Busy() }
+
+// Reset clears every stage's state so a retune or stream restart does
+// not bleed the previous stream's filter history into the next — the
+// framer included, so a burst cut off by the retune is abandoned rather
+// than completed from the next channel's bits.
+func (r *Receiver) Reset() {
+	r.fm.Reset()
+	r.rsmp.Reset()
+	r.ffsk.Reset()
+	r.mm = dspsync.NewMuellerMuller(float64(Oversample), mmGain)
+	r.meanReady = false
+	r.inner.Reset()
 }
 
 // Inner returns the bit-stream orchestrator the frontend is driving.

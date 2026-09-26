@@ -145,6 +145,22 @@ func (f *Framer) finish() {
 	f.inverted = false
 }
 
+// Busy reports whether the framer has locked a preamble + sync word and
+// is part-way through capturing a burst's payload. A caller that owns the
+// RF channel (the conventional scanner's dwell, #1220) holds the channel
+// while this is true, so a burst is not cut off mid-frame.
+func (f *Framer) Busy() bool { return f.st == stateCapture }
+
+// Reset abandons any burst in progress and returns to the sync hunt. A
+// front end calls it on a retune so a burst cut off on one channel cannot
+// swallow the next channel's bits as its payload.
+func (f *Framer) Reset() {
+	f.st = stateHunt
+	f.reg = 0
+	f.n = 0
+	f.inverted = false
+}
+
 // hamming16 counts the differing bits between two 16-bit words.
 func hamming16(a, b uint16) int { return bits.OnesCount16(a ^ b) }
 

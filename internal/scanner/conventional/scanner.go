@@ -76,6 +76,10 @@ type Channel struct {
 	// tone gating and the scanner behaves identically to its
 	// pre-tone version. Detectors: ctcss.go, dcs.go.
 	Tone ToneConfig
+	// Decoders names the data decoders (DecoderMDC1200, DecoderFleetSync)
+	// to run on this channel's IQ while the scanner is on it, built through
+	// Options.DataDecoders. Empty runs none. See data.go (issue #1220).
+	Decoders []string
 }
 
 // ToneConfig configures CTCSS / DCS squelch gating for one channel.
@@ -159,6 +163,11 @@ type Options struct {
 	// Now is injectable for tests; defaults to time.Now.
 	Now func() time.Time
 
+	// DataDecoders builds the per-channel data decoders a Channel names in
+	// Decoders (issue #1220). Nil disables them: a channel that names
+	// decoders then WARNs at construction and scans without them.
+	DataDecoders DataDecoderFactory
+
 	// StreamStallTimeout bounds how long a dwell tolerates receiving NO
 	// IQ chunks at all before it declares the stream stalled, ends the
 	// call (EndReasonError) and re-opens the stream. Hangtime cannot end
@@ -190,6 +199,9 @@ type ChannelStatus struct {
 	// not persisted across daemon restarts.
 	LockedOut   bool      `json:"locked_out,omitempty"`
 	LastBreakAt time.Time `json:"last_break_at,omitempty"`
+	// Decoders lists the data decoders configured on the channel
+	// (issue #1220).
+	Decoders []string `json:"decoders,omitempty"`
 }
 
 // Status is the scanner-wide snapshot.
@@ -210,7 +222,11 @@ type Scanner struct {
 	// detectors parallels channels: detectors[i] is non-nil iff
 	// channels[i] has Tone gating configured. Built at New() and
 	// kept in sync by AddTemporaryChannel / RemoveTemporaryChannel.
-	detectors   []toneDetector
+	detectors []toneDetector
+	// data parallels channels: data[i] is non-nil iff channels[i] has
+	// data decoders (Channel.Decoders) that could be built. Same
+	// lifecycle as detectors.
+	data        []*channelData
 	cursor      int
 	state       State
 	held        bool
@@ -343,6 +359,9 @@ func New(opts Options) (*Scanner, error) {
 		if err := validateTone(ch.Tone); err != nil {
 			return nil, fmt.Errorf("conventional: channel %q: %w", ch.Label, err)
 		}
+		if err := validateDecoders(ch.Decoders); err != nil {
+			return nil, fmt.Errorf("conventional: channel %q: %w", ch.Label, err)
+		}
 	}
 	// Bump min dwell when any channel has tone gating so the
 	// detector has time to fire. 350 ms covers the CTCSS detector's
@@ -361,11 +380,16 @@ func New(opts Options) (*Scanner, error) {
 			detectors[i] = d
 		}
 	}
+	data := make([]*channelData, len(channels))
+	for i, ch := range channels {
+		data[i] = buildChannelData(ch, opts.SampleRateHz, opts.DataDecoders, opts.Log)
+	}
 	return &Scanner{
 		opts:             opts,
 		log:              opts.Log,
 		channels:         channels,
 		detectors:        detectors,
+		data:             data,
 		state:            StateScanning,
 		dwellIndex:       -1,
 		forcedDwellIndex: -1,
@@ -557,6 +581,9 @@ func (s *Scanner) Run(ctx context.Context) error {
 		if det := s.detectorFor(idx); det != nil {
 			det.Reset()
 		}
+		if cd := s.dataFor(idx); cd != nil {
+			cd.reset()
+		}
 
 		// Wait for either squelch to break, the min-dwell timer to
 		// expire (advance), or ctx cancel.
@@ -576,15 +603,27 @@ func (s *Scanner) Run(ctx context.Context) error {
 // false when the timer expires (advance to next channel). When the
 // channel has tone gating configured the detector must also be
 // matched — power alone isn't enough to declare "right system".
+//
+// A channel with data decoders feeds them every chunk that clears the
+// power squelch, and a decoder part-way through a burst when the window
+// expires extends it (in dataScanHoldStep steps, at most dataScanHoldMax)
+// so the scanner does not hop away mid-frame (issue #1220).
 func (s *Scanner) scanWindow(ctx context.Context, idx int, ch Channel, stream <-chan []complex64) bool {
 	deadline := time.NewTimer(s.opts.MinDwellPerChannel)
 	defer deadline.Stop()
 	det := s.detectorFor(idx)
+	cd := s.dataFor(idx)
+	var held time.Duration
 	for {
 		select {
 		case <-ctx.Done():
 			return false
 		case <-deadline.C:
+			if cd != nil && held < dataScanHoldMax && cd.busy() {
+				held += dataScanHoldStep
+				deadline.Reset(dataScanHoldStep)
+				continue
+			}
 			return false
 		case iq, ok := <-stream:
 			if !ok {
@@ -593,6 +632,9 @@ func (s *Scanner) scanWindow(ctx context.Context, idx int, ch Channel, stream <-
 			powerOK := PowerDbFS(iq) >= ch.SquelchDbFS
 			if !powerOK {
 				continue
+			}
+			if cd != nil {
+				cd.feed(iq)
 			}
 			if det == nil {
 				return true
@@ -665,6 +707,10 @@ func (s *Scanner) beginDwell(idx int, ch Channel, stream <-chan []complex64, str
 	// the CTCSS tone (e.g. switching to a different talkgroup on
 	// the same repeater) hangs up just like a true carrier drop.
 	det := s.detectorFor(idx)
+	// cd is the channel's data decoders (nil when none): fed every chunk of
+	// the dwell, and a decoder mid-burst counts as activity so hangtime
+	// cannot cut the burst off (issue #1220).
+	cd := s.dataFor(idx)
 	// keepAlive is the power a chunk must clear to count as carrier
 	// present while dwelling. Squelch already OPENED at SquelchDbFS in
 	// scanWindow; here we require power to fall a hysteresis margin
@@ -709,6 +755,12 @@ func (s *Scanner) beginDwell(idx int, ch Channel, stream <-chan []complex64, str
 			active := PowerDbFS(iq) >= keepAlive
 			if active && det != nil {
 				active = det.Process(iq)
+			}
+			if cd != nil {
+				cd.feed(iq)
+				if !active && cd.busy() {
+					active = true
+				}
 			}
 			now := s.opts.Now()
 			if active {
@@ -794,6 +846,17 @@ func (s *Scanner) pickNextChannel() (int, Channel, bool) {
 		return idx, s.channels[idx], true
 	}
 	return 0, Channel{}, false
+}
+
+// dataFor returns the data decoders for the given channel index, or nil
+// when it has none. Same ownership rule as detectorFor.
+func (s *Scanner) dataFor(idx int) *channelData {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if idx < 0 || idx >= len(s.data) {
+		return nil
+	}
+	return s.data[idx]
 }
 
 // detectorFor returns the CTCSS detector for the given channel
@@ -931,11 +994,17 @@ func (s *Scanner) AddTemporaryChannel(ch Channel) int {
 		ch.Tone = ToneConfig{}
 	}
 	det := buildDetector(ch.Tone, s.opts.SampleRateHz, s.log)
+	if err := validateDecoders(ch.Decoders); err != nil {
+		s.log.Warn("conv: dropping invalid decoders on temp channel", "err", err)
+		ch.Decoders = nil
+	}
+	cd := buildChannelData(ch, s.opts.SampleRateHz, s.opts.DataDecoders, s.log)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	idx := len(s.channels)
 	s.channels = append(s.channels, ch)
 	s.detectors = append(s.detectors, det)
+	s.data = append(s.data, cd)
 	s.lastBreakAt = append(s.lastBreakAt, time.Time{})
 	s.tempChannels[idx] = true
 	s.forcedDwellIndex = idx
@@ -978,6 +1047,7 @@ func (s *Scanner) RemoveTemporaryChannel(idx int) bool {
 	}
 	s.channels = append(s.channels[:idx], s.channels[idx+1:]...)
 	s.detectors = append(s.detectors[:idx], s.detectors[idx+1:]...)
+	s.data = append(s.data[:idx], s.data[idx+1:]...)
 	s.lastBreakAt = append(s.lastBreakAt[:idx], s.lastBreakAt[idx+1:]...)
 	// Rebuild the tempChannels + lockedOut sets with shifted indices.
 	// Both maps share the same shift rule: drop the removed entry,
@@ -1019,6 +1089,7 @@ func (s *Scanner) Snapshot() Status {
 			Active:      i == s.dwellIndex,
 			LockedOut:   s.lockedOut[i],
 			LastBreakAt: s.lastBreakAt[i],
+			Decoders:    ch.Decoders,
 		}
 	}
 	return Status{

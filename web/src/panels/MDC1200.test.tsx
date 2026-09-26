@@ -53,6 +53,8 @@ describe("MDC1200 panel", () => {
         operation: "PTT ID",
         body: "Unit 1234: PTT ID",
         crc_ok: true,
+        serial: "R2",
+        frequency_hz: 146_670_000,
       },
     ]);
     render(<MDC1200 />);
@@ -60,6 +62,9 @@ describe("MDC1200 panel", () => {
       expect(screen.getByText("1234")).toBeInTheDocument();
       expect(screen.getByText("PTT ID")).toBeInTheDocument();
       expect(screen.getByText("0x01 / 0x80")).toBeInTheDocument();
+      // #1220: the channel the burst came in on — frequency and SDR serial.
+      expect(screen.getByText(/146\.6700 MHz/)).toBeInTheDocument();
+      expect(screen.getByText(/R2/)).toBeInTheDocument();
     });
   });
 

@@ -7,6 +7,24 @@ for tagged releases.
 
 ## [Unreleased]
 
+### Added
+- **MDC1200 and FleetSync decode on `scanner.conventional` channels — no
+  dedicated SDR needed (#1220).** A scan-list entry can now name the data
+  decoders to run on its own IQ: `decoders: [mdc1200, fleetsync]`. Bursts
+  land in the same logs, REST endpoints and web panels as the
+  `mdc1200.channels` / `fleetsync.channels` receivers, stamped with the
+  scanner's SDR serial and the channel frequency. The scanner decimates to
+  one ~48 kHz channel behind a channel filter before the decoder sees it:
+  fed the raw 2.4 MS/s stream, the FM discriminator is swamped by the whole
+  band's noise (measured on the #1184 real-air FleetSync slices with
+  band-wide noise: 0/2 bursts raw, 2/2 through the channel front end). A
+  decoder that has heard a sync word holds the channel until the burst is
+  framed, so the scanner neither hops away nor ends the call on hangtime
+  mid-burst. The dedicated-SDR sections are unchanged. MDC1200 bursts now
+  also carry `serial` / `frequency_hz` (new `mdc1200_log` columns, migrated
+  in place; a Channel column on the `/mdc1200` panel). Config builder field:
+  "Data decoders". Still needs an on-air test.
+
 ### Changed
 - **DCS gates now open only on the configured polarity — new
   `tone.dcs_polarity` (#1184, on-air follow-up).** The reporter's Kenwood
