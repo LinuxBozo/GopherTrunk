@@ -203,6 +203,9 @@ type ManualTuneRequest struct {
 	Label       string  `json:"label"`
 	Mode        string  `json:"mode"`
 	SquelchDbFS float64 `json:"squelch_dbfs"`
+	// SquelchCNDb is the carrier-to-noise open threshold for mode "am"
+	// (issue #1219); ignored for fm/nfm. 0 = the scanner default.
+	SquelchCNDb float64 `json:"squelch_cn_db"`
 	HangtimeMs  int     `json:"hangtime_ms"`
 }
 

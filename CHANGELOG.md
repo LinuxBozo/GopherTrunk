@@ -8,6 +8,21 @@ for tagged releases.
 ## [Unreleased]
 
 ### Added
+- **AM on the conventional scanner, for the VHF air band (#1219).**
+  `mode: am` on a `scanner.conventional` entry (and in the manual-tune
+  VFO) demodulates double-sideband AM. The detector divides the
+  envelope by the tracked carrier level, so it outputs the modulation
+  depth: the carrier is the gain reference, and a weak and a strong
+  station record at the same level. The chain uses a ±4.5 kHz channel
+  filter (rejecting an 8.33 kHz neighbour by ~68 dB in the test) and a
+  3 kHz voice low-pass, and skips FM de-emphasis and the FM equalizer.
+  AM channels squelch on the carrier's **carrier-to-noise ratio**
+  measured from the channel's own spectrum (`squelch_cn_db`, default
+  12 dB; noise alone reads ~3–7 dB), never on absolute dBFS, so a gain
+  change doesn't move it. `squelch_dbfs` is ignored on AM channels.
+  The Config Builder offers the mode and the C/N field. Still needs an
+  on-air test.
+
 - **MDC1200 and FleetSync decode on `scanner.conventional` channels — no
   dedicated SDR needed (#1220).** A scan-list entry can now name the data
   decoders to run on its own IQ: `decoders: [mdc1200, fleetsync]`. Bursts

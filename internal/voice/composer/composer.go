@@ -567,6 +567,10 @@ const (
 	// MPT 1327, and EDACS unless it is digital ProVoice), which all decode
 	// through runFMChain.
 	voiceKindFM
+	// voiceKindAM is analog AM (conventional "am-conv" channels, the VHF
+	// air band, issue #1219): the same chain as FM with an envelope
+	// detector in place of the discriminator (runFMChain's am flag).
+	voiceKindAM
 	voiceKindDMR      // dmr-tier1/2/3
 	voiceKindP25P1    // p25
 	voiceKindP25P2    // p25-phase2
@@ -598,6 +602,8 @@ func classifyVoiceKind(cs trunking.CallStart) voiceKind {
 		return voiceKindDPMR
 	case "dstar":
 		return voiceKindDSTAR
+	case "am-conv":
+		return voiceKindAM
 	}
 	proto := cs.Grant.Protocol
 	isAnalogTrunk := proto == "motorola" || proto == "ltr" || proto == "mpt1327" ||
@@ -728,10 +734,12 @@ func (c *Composer) handleStart(parent context.Context, cs trunking.CallStart) {
 		go c.runDPMRVoiceChain(chainCtx, cs.DeviceSerial, cs.Grant.System, iqCh, rateHzF, cs.Grant.GroupID, ch.done)
 	case voiceKindDSTAR:
 		go c.runDStarVoiceChain(chainCtx, cs.DeviceSerial, cs.Grant.System, iqCh, rateHzF, cs.Grant.GroupID, ch.done)
+	case voiceKindAM:
+		go c.runFMChain(chainCtx, cs.DeviceSerial, iqCh, uint32(math.Round(rateHzF)), true, ch.done)
 	default:
 		// Analog FM has no symbol clock to drift, so the rounded integer
 		// rate is fine; keep its uint32 signature unchanged.
-		go c.runFMChain(chainCtx, cs.DeviceSerial, iqCh, uint32(math.Round(rateHzF)), ch.done)
+		go c.runFMChain(chainCtx, cs.DeviceSerial, iqCh, uint32(math.Round(rateHzF)), false, ch.done)
 	}
 }
 
@@ -895,7 +903,14 @@ func (c *Composer) newFMChannelFilter(intermediateHzf float64) *filter.FIR {
 	return filter.NewFIR(filter.LowpassKaiser(81, fc, 8.6))
 }
 
-func (c *Composer) runFMChain(ctx context.Context, serial string, iqCh <-chan []complex64, iqHz uint32, done chan<- struct{}) {
+// runFMChain is the analog voice chain. am selects AM (issue #1219): a fixed
+// ±amChannelCutoffHz channel filter, the carrier-referenced envelope detector
+// (demod.AM) instead of the FM discriminator, a fixed amAudioCutoffHz audio
+// low-pass, and no FM-only stages — no de-emphasis (AM is not pre-emphasised)
+// and no CMA equalizer (its constant-modulus target is wrong for AM, whose
+// envelope IS the audio). Everything else — decimation, the tone high-pass,
+// AGC, resampling, squelch-tail mute, PCM delivery — is shared.
+func (c *Composer) runFMChain(ctx context.Context, serial string, iqCh <-chan []complex64, iqHz uint32, am bool, done chan<- struct{}) {
 	defer close(done)
 	defer gtlog.Recover(c.log, "voice-chain-fm:"+serial, nil)
 
@@ -925,13 +940,17 @@ func (c *Composer) runFMChain(ctx context.Context, serial string, iqCh <-chan []
 	}
 
 	fm := demod.NewFM()
+	var amDet *demod.AM
+	if am {
+		amDet = demod.NewAM(fe.OutRateHz())
+	}
 
 	// Optional CMA blind equalizer for simulcast-distortion mitigation.
 	// Sits between the front-end LPF (decimated) and the FM demod so it
 	// operates at the intermediate rate (~48 kHz) rather than 2.4 MS/s.
 	// R^2 = 1 because FM has unit-magnitude carrier on air.
 	var eq *equalizer.CMA
-	if c.eqCfg.Enabled {
+	if c.eqCfg.Enabled && !am {
 		eq = equalizer.NewCMA(c.eqCfg.Taps, c.eqCfg.StepSize, 1.0)
 	}
 
@@ -946,10 +965,15 @@ func (c *Composer) runFMChain(ctx context.Context, serial string, iqCh <-chan []
 	// before the equalizer/discriminator, to band-limit the IQ to the configured
 	// NFM channel. nil (the default) leaves the chain byte-for-byte unchanged.
 	chanFilter := c.newFMChannelFilter(intermediateHzf)
+	var amAudioLPF *filter.RealFIR
+	if am {
+		chanFilter = newAMChannelFilter(intermediateHzf)
+		amAudioLPF = filter.NewRealFIR(filter.LowpassKaiser(127, amAudioCutoffHz/intermediateHzf, 8.6))
+	}
 	var chanScratch []complex64
 
 	var deemph *filter.DeEmphasis
-	if c.deemphCfg.Enabled {
+	if c.deemphCfg.Enabled && !am {
 		deemph = filter.NewDeEmphasis(c.deemphCfg.TimeConstant, intermediateHzf)
 	}
 
@@ -1112,7 +1136,16 @@ func (c *Composer) runFMChain(ctx context.Context, serial string, iqCh <-chan []
 				}
 				decimated = eqScratch
 			}
-			audio := fm.Process(nil, decimated)
+			var audio []float32
+			if amDet != nil {
+				audio = amDet.Process(nil, decimated)
+				audio = amAudioLPF.Process(audio, audio)
+				for i := range audio {
+					audio[i] *= amAudioScale
+				}
+			} else {
+				audio = fm.Process(nil, decimated)
+			}
 			for _, hp := range audioHP {
 				hp.ProcessFloat32(audio)
 			}
@@ -1178,6 +1211,31 @@ func (c *Composer) runFMChain(ctx context.Context, serial string, iqCh <-chan []
 			}
 		}
 	}
+}
+
+// AM chain constants (issue #1219).
+const (
+	// amChannelCutoffHz is the AM channel filter's one-sided cutoff. Air-band
+	// voice is DSB with ~3 kHz audio, and the carrier may sit a kHz or two off
+	// the tuned frequency; ±4.5 kHz keeps that while rejecting an 8.33 kHz
+	// neighbour, whose nearest sideband starts ~5.3 kHz away.
+	amChannelCutoffHz = 4_500
+	// amAudioCutoffHz band-limits the detected audio to voice.
+	amAudioCutoffHz = 3_000
+	// amAudioScale maps the detector's modulation depth (±1 at 100 %) onto
+	// the FM discriminator's scale, so an AM channel records at the level of
+	// a ±3 kHz NFM one (±0.39 rad/sample at 48 kHz) before any AGC.
+	amAudioScale = 0.4
+)
+
+// newAMChannelFilter is the AM channel-select filter at the chain's
+// intermediate rate: 181 Kaiser taps give a ~1.5 kHz skirt at 48 kHz.
+func newAMChannelFilter(intermediateHzf float64) *filter.FIR {
+	fc := amChannelCutoffHz / intermediateHzf
+	if fc > 0.45 {
+		fc = 0.45
+	}
+	return filter.NewFIR(filter.LowpassKaiser(181, fc, 8.6))
 }
 
 func decimateComplex(in []complex64, factor int) []complex64 {

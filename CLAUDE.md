@@ -1792,6 +1792,17 @@ confirmation before any close-as-completed.
   dwell activity (hangtime can't cut a burst); the framers are Reset on every retune so a cut-off
   burst can't frame the next channel's bits. Decoders ignore the CTCSS/DCS gate by design.
   On-air-gated (#764/#771): the reporter's Kenwood lab run is the confirmation.
+- **AM on the conventional scanner (#1219): `mode: am` → protocol `am-conv` → the FM chain
+  with `am=true`.** Composer: ±4.5 kHz channel filter, `demod.AM` (envelope ÷ tracked carrier
+  − 1 = modulation depth, so the carrier IS the AGC reference — level-independent), 3 kHz
+  voice LPF, `amAudioScale` 0.4 to sit at NFM level; de-emphasis and the CMA equalizer are
+  skipped (CMA's constant-modulus target is wrong for AM). Scanner: AM channels squelch on
+  `amCNMeter` (Welch PSD at ~48 kHz: strongest bin within ±4.5 kHz over the 20th-percentile
+  floor within ±12 kHz), NEVER dBFS — noise reads 2.6–7 dB at any level, a carrier tracks its
+  true C/N ±1–2 dB, default open 12 dB. Test gotchas: the chain's default naive PCM decimation
+  restarts its phase every IQ chunk, so a coherent tone measurement needs
+  `AudioResampler{Enabled:true}`; and two carriers in one discriminator beat, so an "FM chain
+  can't hear AM" counterfactual must use a lone carrier. On-air-gated (#764/#771).
 - **A detector threshold in radians-per-sample is a SAMPLE-RATE trap (#1184 CTCSS).** The
   conventional scanner's CTCSS gate never opened on air: its Goertzel threshold was calibrated
   on 48 kHz unit tests, but the scanner feeds 2.4 MS/s, where the same deviation is 50x smaller

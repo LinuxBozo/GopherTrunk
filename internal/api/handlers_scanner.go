@@ -198,6 +198,7 @@ func (s *Server) convLockoutOp(w http.ResponseWriter, r *http.Request, op func(i
 //	POST /api/v1/scanner/manual_tune
 //	Content-Type: application/json
 //	{"frequency_hz":155895000,"label":"sheriff","mode":"fm"}
+//	{"frequency_hz":118700000,"label":"tower","mode":"am","squelch_cn_db":12}
 //
 // Responses:
 //
@@ -230,8 +231,8 @@ func (s *Server) handleScannerManualTune(w http.ResponseWriter, r *http.Request)
 		s.writeError(w, http.StatusBadRequest, "frequency_hz outside 25 MHz – 1.3 GHz tuning range")
 		return
 	}
-	if req.Mode != "" && req.Mode != "fm" && req.Mode != "nfm" {
-		s.writeError(w, http.StatusBadRequest, "mode must be fm or nfm")
+	if req.Mode != "" && req.Mode != "fm" && req.Mode != "nfm" && req.Mode != "am" {
+		s.writeError(w, http.StatusBadRequest, "mode must be fm, nfm or am")
 		return
 	}
 	idx, ok := s.scanner.ManualTune(req)
