@@ -7,6 +7,8 @@ for tagged releases.
 
 ## [Unreleased]
 
+## [v1.2.1] — 2026-09-27
+
 ### Added
 - **AM on the conventional scanner, for the VHF air band (#1219).**
   `mode: am` on a `scanner.conventional` entry (and in the manual-tune
