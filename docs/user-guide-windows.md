@@ -1066,8 +1066,9 @@ scanner:
 | --- | --- |
 | `label` | Display name |
 | `frequency_hz` | Tuner centre frequency |
-| `mode` | `fm` (default), `nfm`, `am`; protocols extend over time |
-| `squelch_dbfs` | IQ-power squelch threshold in dBFS |
+| `mode` | `fm` (default), `nfm`, or `am` (the VHF air band — see below) |
+| `squelch_dbfs` | IQ-power squelch threshold in dBFS (FM channels) |
+| `squelch_cn_db` | AM channels: carrier-to-noise open threshold in dB (default 12) |
 | `hangtime_ms` | Carrier-lost dwell before hopping |
 | `priority` | Integer 0–10 for scan order |
 | `tone` | Optional CTCSS / DCS sub-audible squelch gate |
@@ -1077,6 +1078,37 @@ carrier is present **and** the configured tone is detected, so
 adjacent-system traffic on the same frequency doesn't trigger a
 false dwell. Omit the block (or set `mode: none`) for plain
 carrier-only squelch.
+
+#### AM channels (VHF air band)
+
+`mode: am` demodulates the channel as double-sideband AM, for the
+118–137 MHz air band:
+
+```yaml
+scanner:
+  conventional:
+    - label: "Tower"
+      frequency_hz: 118700000   # the actual carrier (see below)
+      mode: am
+      squelch_cn_db: 12         # default 12
+```
+
+- **Audio.** The chain band-limits the channel to ±4.5 kHz, which
+  rejects an 8.33 kHz neighbour. It then detects the envelope and
+  band-limits the voice to 3 kHz. The carrier is the gain reference,
+  so a weak and a strong transmitter at the same modulation depth
+  record at the same level. De-emphasis and the FM equalizer don't
+  apply to AM.
+- **Squelch.** An AM channel ignores `squelch_dbfs`. It opens when
+  the carrier stands `squelch_cn_db` above the channel's own noise
+  floor, measured from the channel spectrum, so a gain change does
+  not move it. Noise alone reads about 3–7 dB. Raise the value if a
+  channel opens on interference; lower it for weaker stations.
+- **Frequencies.** Enter the carrier frequency, not the 8.33 kHz
+  channel name: channel "118.005" is the 118.000 MHz carrier. Both
+  25 kHz and 8.33 kHz spacing work.
+- **Manual tune.** The VFO form in the web Scanner tab has an AM
+  option too.
 
 ### Manual VFO tune
 

@@ -1379,6 +1379,16 @@ scanner:
   #       ctcss_hz: 100.0    # required for ctcss
   #       # dcs_code: "023"  # required for dcs (3-digit octal)
   #       # dcs_polarity: normal  # normal (radio "D023N", default) | inverted ("D023I") | both
+  #   # AM channel (VHF air band, #1219). mode: am switches to envelope
+  #   # detection and a carrier-to-noise squelch measured from the channel's
+  #   # own spectrum — squelch_dbfs is ignored, so a gain change doesn't move
+  #   # it. frequency_hz is the ACTUAL carrier: an 8.33 kHz "channel name"
+  #   # like 118.005 is the 118.000 MHz carrier. Works on 25 and 8.33 kHz
+  #   # spacing (±4.5 kHz channel filter).
+  #   - label: "Tower"
+  #     frequency_hz: 118700000
+  #     mode: am
+  #     squelch_cn_db: 12    # default 12 (noise alone reads ~3–7 dB)
   #     # Optional data decoders run on this channel's IQ while the
   #     # scanner is on it (#1220): MDC1200 and/or Kenwood FleetSync ANI.
   #     # Bursts land in the same log, REST endpoint and web panel as the

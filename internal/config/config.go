@@ -594,9 +594,15 @@ type CCHuntConfig struct {
 type ConvChannelConfig struct {
 	Label       string  `yaml:"label"`
 	FrequencyHz uint32  `yaml:"frequency_hz"`
-	Mode        string  `yaml:"mode"`         // "fm" | "nfm"
-	SquelchDbFS float64 `yaml:"squelch_dbfs"` // default -50
-	HangtimeMs  int     `yaml:"hangtime_ms"`  // default 1500
+	Mode        string  `yaml:"mode"`         // "fm" | "nfm" | "am" (#1219)
+	SquelchDbFS float64 `yaml:"squelch_dbfs"` // default -50; ignored for mode am
+	// SquelchCNDb is an AM channel's squelch: the carrier's
+	// carrier-to-noise ratio (dB, in a ~188 Hz bin) measured from the
+	// channel's own spectrum, so it does not move with gain the way a
+	// dBFS threshold does. Default 12; 0 = default. Ignored for fm/nfm.
+	// Issue #1219.
+	SquelchCNDb float64 `yaml:"squelch_cn_db"`
+	HangtimeMs  int     `yaml:"hangtime_ms"` // default 1500
 	// ActivityDebounceMs is the minimum sustained above-threshold time
 	// that counts as renewed activity resetting the hangtime countdown.
 	// De-bounces the trailing edge so a brief blip can't hold squelch

@@ -456,7 +456,7 @@ function ManualTune({
   const cfg = useShared(selectClientConfig);
   const [freq, setFreq] = useState("");
   const [label, setLabel] = useState("");
-  const [mode, setMode] = useState<"fm" | "nfm">("fm");
+  const [mode, setMode] = useState<"fm" | "nfm" | "am">("fm");
   const [squelch, setSquelch] = useState("");
   const [hang, setHang] = useState("");
   const [busy, setBusy] = useState(false);
@@ -473,7 +473,11 @@ function ManualTune({
       };
       if (label.trim()) body.label = label.trim();
       const s = parseFloat(squelch);
-      if (Number.isFinite(s)) body.squelch_dbfs = s;
+      // AM squelches on carrier-to-noise, not dBFS (#1219).
+      if (Number.isFinite(s)) {
+        if (mode === "am") body.squelch_cn_db = s;
+        else body.squelch_dbfs = s;
+      }
       const h = parseInt(hang, 10);
       if (Number.isFinite(h)) body.hangtime_ms = h;
       await onMutate("manual_tune", () => writes.manualTune(cfg, body));
@@ -518,18 +522,21 @@ function ManualTune({
           <select
             className="input w-full"
             value={mode}
-            onChange={(e) => setMode(e.target.value as "fm" | "nfm")}
+            onChange={(e) => setMode(e.target.value as "fm" | "nfm" | "am")}
           >
             <option value="fm">FM</option>
             <option value="nfm">NFM</option>
+            <option value="am">AM</option>
           </select>
         </label>
         <label className="text-xs space-y-1">
-          <span className="text-muted uppercase tracking-wider">Squelch dBFS</span>
+          <span className="text-muted uppercase tracking-wider">
+            {mode === "am" ? "Squelch C/N dB" : "Squelch dBFS"}
+          </span>
           <input
             type="number"
             className="input w-full"
-            placeholder="-40"
+            placeholder={mode === "am" ? "12" : "-40"}
             value={squelch}
             onChange={(e) => setSquelch(e.target.value)}
           />

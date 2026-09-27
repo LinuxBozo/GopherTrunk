@@ -741,9 +741,12 @@ func validateConvChannel(i int, ch ConvChannelConfig) error {
 		return fmt.Errorf("scanner.conventional[%d]: frequency_hz required", i)
 	}
 	switch ch.Mode {
-	case "", "fm", "nfm":
+	case "", "fm", "nfm", "am":
 	default:
-		return fmt.Errorf("scanner.conventional[%d]: mode must be fm|nfm", i)
+		return fmt.Errorf("scanner.conventional[%d]: mode must be fm|nfm|am", i)
+	}
+	if ch.SquelchCNDb < 0 {
+		return fmt.Errorf("scanner.conventional[%d]: squelch_cn_db must be ≥ 0", i)
 	}
 	if ch.ActivityDebounceMs < 0 {
 		return fmt.Errorf("scanner.conventional[%d]: activity_debounce_ms must be ≥ 0", i)

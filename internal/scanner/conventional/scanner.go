@@ -28,12 +28,20 @@ type Channel struct {
 	Label       string
 	FrequencyHz uint32
 	// Mode is "fm" or "nfm" — the latter narrows the post-demod
-	// audio LPF; both share the IQ-power squelch.
+	// audio LPF; both share the IQ-power squelch — or "am" (issue
+	// #1219): envelope-detected audio (protocol "am-conv") and a
+	// carrier-to-noise squelch (SquelchCNDb) instead of SquelchDbFS.
 	Mode string
 	// SquelchDbFS is the threshold above which the scanner declares
 	// "carrier present". A typical value for an RTL-SDR-class
 	// receiver is around -50 dBFS; tune per channel as needed.
+	// Ignored on an AM channel.
 	SquelchDbFS float64
+	// SquelchCNDb is an AM channel's open threshold: the carrier's C/N
+	// in one ~188 Hz bin, measured from the channel's own spectrum
+	// (am_squelch.go), so it does not depend on gain or absolute level.
+	// Default DefaultAMSquelchCNDb. Ignored on FM channels.
+	SquelchCNDb float64
 	// Hangtime is how long below threshold must elapse before the
 	// scanner declares the call over and resumes hopping. Default
 	// 1500 ms keeps the scanner from clipping the tail of normal
@@ -223,6 +231,10 @@ type Scanner struct {
 	// channels[i] has Tone gating configured. Built at New() and
 	// kept in sync by AddTemporaryChannel / RemoveTemporaryChannel.
 	detectors []toneDetector
+	// amMeters parallels channels: amMeters[i] is non-nil iff
+	// channels[i] is an AM channel, and then replaces the IQ-power
+	// squelch with a carrier-to-noise one. Same lifecycle as detectors.
+	amMeters []*amCNMeter
 	// data parallels channels: data[i] is non-nil iff channels[i] has
 	// data decoders (Channel.Decoders) that could be built. Same
 	// lifecycle as detectors.
@@ -356,6 +368,12 @@ func New(opts Options) (*Scanner, error) {
 		if ch.Mode == "" {
 			ch.Mode = "fm"
 		}
+		if !ValidMode(ch.Mode) {
+			return nil, fmt.Errorf("conventional: channel %q: mode %q must be fm|nfm|am", ch.Label, ch.Mode)
+		}
+		if ch.Mode == ModeAM && ch.SquelchCNDb <= 0 {
+			ch.SquelchCNDb = DefaultAMSquelchCNDb
+		}
 		if err := validateTone(ch.Tone); err != nil {
 			return nil, fmt.Errorf("conventional: channel %q: %w", ch.Label, err)
 		}
@@ -371,6 +389,11 @@ func New(opts Options) (*Scanner, error) {
 	// A DCS gate needs longer still (see dcsMinDwell) — its first
 	// match takes a full codeword plus confirmation bits.
 	minDwell := minToneDwell(channels)
+	for _, ch := range channels {
+		if ch.Mode == ModeAM {
+			minDwell = max(minDwell, amMinDwell)
+		}
+	}
 	if minDwell > 0 && opts.MinDwellPerChannel < minDwell {
 		opts.MinDwellPerChannel = minDwell
 	}
@@ -381,8 +404,10 @@ func New(opts Options) (*Scanner, error) {
 		}
 	}
 	data := make([]*channelData, len(channels))
+	amMeters := make([]*amCNMeter, len(channels))
 	for i, ch := range channels {
 		data[i] = buildChannelData(ch, opts.SampleRateHz, opts.DataDecoders, opts.Log)
+		amMeters[i] = buildAMMeter(ch, opts.SampleRateHz, opts.Log)
 	}
 	return &Scanner{
 		opts:             opts,
@@ -390,6 +415,7 @@ func New(opts Options) (*Scanner, error) {
 		channels:         channels,
 		detectors:        detectors,
 		data:             data,
+		amMeters:         amMeters,
 		state:            StateScanning,
 		dwellIndex:       -1,
 		forcedDwellIndex: -1,
@@ -584,6 +610,9 @@ func (s *Scanner) Run(ctx context.Context) error {
 		if cd := s.dataFor(idx); cd != nil {
 			cd.reset()
 		}
+		if am := s.amMeterFor(idx); am != nil {
+			am.reset()
+		}
 
 		// Wait for either squelch to break, the min-dwell timer to
 		// expire (advance), or ctx cancel.
@@ -613,6 +642,7 @@ func (s *Scanner) scanWindow(ctx context.Context, idx int, ch Channel, stream <-
 	defer deadline.Stop()
 	det := s.detectorFor(idx)
 	cd := s.dataFor(idx)
+	level, open := s.squelchMeasure(idx, ch)
 	var held time.Duration
 	for {
 		select {
@@ -629,7 +659,7 @@ func (s *Scanner) scanWindow(ctx context.Context, idx int, ch Channel, stream <-
 			if !ok {
 				return false
 			}
-			powerOK := PowerDbFS(iq) >= ch.SquelchDbFS
+			powerOK := level(iq) >= open
 			if !powerOK {
 				continue
 			}
@@ -685,7 +715,7 @@ func (s *Scanner) beginDwell(idx int, ch Channel, stream <-chan []complex64, str
 	}
 	g := trunking.Grant{
 		System:      s.opts.SystemName,
-		Protocol:    "fm-conv",
+		Protocol:    conventionalProtocol(ch),
 		GroupID:     gid,
 		GroupLabel:  ch.Label, // #1105: surface the channel's configured name to scan consumers
 		SourceID:    0,
@@ -716,7 +746,8 @@ func (s *Scanner) beginDwell(idx int, ch Channel, stream <-chan []complex64, str
 	// scanWindow; here we require power to fall a hysteresis margin
 	// below that before the chunk counts as inactive, so a signal
 	// hovering at the threshold doesn't flicker the countdown.
-	keepAlive := ch.SquelchDbFS - ch.SquelchHysteresisDb
+	level, open := s.squelchMeasure(idx, ch)
+	keepAlive := open - ch.SquelchHysteresisDb
 	// belowSince marks the start of the current below-threshold run
 	// (zero => currently active). aboveSince marks the start of a run
 	// of above-threshold chunks seen *during* a countdown — it is the
@@ -752,7 +783,7 @@ func (s *Scanner) beginDwell(idx int, ch Channel, stream <-chan []complex64, str
 				return
 			}
 			lastChunk = s.opts.Now()
-			active := PowerDbFS(iq) >= keepAlive
+			active := level(iq) >= keepAlive
 			if active && det != nil {
 				active = det.Process(iq)
 			}
@@ -986,6 +1017,13 @@ func (s *Scanner) AddTemporaryChannel(ch Channel) int {
 	if ch.Mode == "" {
 		ch.Mode = "fm"
 	}
+	if !ValidMode(ch.Mode) {
+		s.log.Warn("conv: unknown mode on temp channel; using fm", "mode", ch.Mode)
+		ch.Mode = "fm"
+	}
+	if ch.Mode == ModeAM && ch.SquelchCNDb <= 0 {
+		ch.SquelchCNDb = DefaultAMSquelchCNDb
+	}
 	if err := validateTone(ch.Tone); err != nil {
 		// Bad tone config on a temp channel: log and strip the
 		// tone rather than reject the whole tune. The manual
@@ -999,12 +1037,14 @@ func (s *Scanner) AddTemporaryChannel(ch Channel) int {
 		ch.Decoders = nil
 	}
 	cd := buildChannelData(ch, s.opts.SampleRateHz, s.opts.DataDecoders, s.log)
+	am := buildAMMeter(ch, s.opts.SampleRateHz, s.log)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	idx := len(s.channels)
 	s.channels = append(s.channels, ch)
 	s.detectors = append(s.detectors, det)
 	s.data = append(s.data, cd)
+	s.amMeters = append(s.amMeters, am)
 	s.lastBreakAt = append(s.lastBreakAt, time.Time{})
 	s.tempChannels[idx] = true
 	s.forcedDwellIndex = idx
@@ -1048,6 +1088,7 @@ func (s *Scanner) RemoveTemporaryChannel(idx int) bool {
 	s.channels = append(s.channels[:idx], s.channels[idx+1:]...)
 	s.detectors = append(s.detectors[:idx], s.detectors[idx+1:]...)
 	s.data = append(s.data[:idx], s.data[idx+1:]...)
+	s.amMeters = append(s.amMeters[:idx], s.amMeters[idx+1:]...)
 	s.lastBreakAt = append(s.lastBreakAt[:idx], s.lastBreakAt[idx+1:]...)
 	// Rebuild the tempChannels + lockedOut sets with shifted indices.
 	// Both maps share the same shift rule: drop the removed entry,

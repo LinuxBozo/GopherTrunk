@@ -141,8 +141,9 @@ export const writes = {
     body: {
       frequency_hz: number;
       label?: string;
-      mode?: "fm" | "nfm";
+      mode?: "fm" | "nfm" | "am";
       squelch_dbfs?: number;
+      squelch_cn_db?: number;
       hangtime_ms?: number;
     },
   ) => request<{ index: number }>(c, "POST", "/api/v1/scanner/manual_tune", body),

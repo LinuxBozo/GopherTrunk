@@ -170,6 +170,7 @@ func (c scannerCockpit) ManualTune(req api.ManualTuneRequest) (int, bool) {
 		FrequencyHz: req.FrequencyHz,
 		Mode:        req.Mode,
 		SquelchDbFS: req.SquelchDbFS,
+		SquelchCNDb: req.SquelchCNDb,
 	}
 	if req.HangtimeMs > 0 {
 		ch.Hangtime = time.Duration(req.HangtimeMs) * time.Millisecond

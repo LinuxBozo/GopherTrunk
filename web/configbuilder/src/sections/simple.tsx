@@ -472,6 +472,7 @@ export function ScannerSection() {
             FrequencyHz: 0,
             Mode: "nfm",
             SquelchDbFS: 0,
+            SquelchCNDb: 0,
             HangtimeMs: 0,
             ActivityDebounceMs: 0,
             SquelchHysteresisDb: 0,
@@ -495,9 +496,19 @@ export function ScannerSection() {
                     { value: "", label: "(fm)" },
                     { value: "fm", label: "fm" },
                     { value: "nfm", label: "nfm" },
+                    { value: "am", label: "am (air band)" },
                   ]}
                 />
-                <NumberField label="Squelch (dBFS)" step={0.1} value={ch.SquelchDbFS} onChange={(x) => setCh({ ...ch, SquelchDbFS: x })} />
+                {ch.Mode === "am" ? (
+                  <NumberField
+                    label="AM squelch C/N (dB, 0 = 12)"
+                    step={0.5}
+                    value={ch.SquelchCNDb ?? 0}
+                    onChange={(x) => setCh({ ...ch, SquelchCNDb: x })}
+                  />
+                ) : (
+                  <NumberField label="Squelch (dBFS)" step={0.1} value={ch.SquelchDbFS} onChange={(x) => setCh({ ...ch, SquelchDbFS: x })} />
+                )}
                 <NumberField label="Hangtime (ms)" value={ch.HangtimeMs} onChange={(x) => setCh({ ...ch, HangtimeMs: x })} />
                 <NumberField label="Activity debounce (ms)" value={ch.ActivityDebounceMs} onChange={(x) => setCh({ ...ch, ActivityDebounceMs: x })} />
                 <NumberField label="Squelch hysteresis (dB)" step={0.1} value={ch.SquelchHysteresisDb} onChange={(x) => setCh({ ...ch, SquelchHysteresisDb: x })} />

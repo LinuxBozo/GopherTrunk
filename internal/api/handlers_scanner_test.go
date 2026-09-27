@@ -498,3 +498,33 @@ func TestScannerManualTune_Gated(t *testing.T) {
 // suppress "unused import" issues; using io / fmt may be needed via bytes.
 var _ = io.Discard
 var _ = fmt.Sprintf
+
+// Manual tune accepts mode am with its C/N squelch (issue #1219) and still
+// rejects modes the scanner cannot demodulate.
+func TestScannerManualTune_AMMode(t *testing.T) {
+	bus := events.NewBus(8)
+	defer bus.Close()
+	cock := &fakeCockpit{}
+	base, teardown := mkServer(t, ServerOptions{Bus: bus, Scanner: cock, AllowMutations: true})
+	defer teardown()
+
+	for _, tc := range []struct {
+		body string
+		want int
+	}{
+		{`{"frequency_hz":118700000,"label":"tower","mode":"am","squelch_cn_db":14}`, 200},
+		{`{"frequency_hz":118700000,"mode":"usb"}`, 400},
+	} {
+		resp, err := http.Post(base+"/api/v1/scanner/manual_tune", "application/json", bytes.NewReader([]byte(tc.body)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != tc.want {
+			t.Errorf("%s: status=%d, want %d", tc.body, resp.StatusCode, tc.want)
+		}
+	}
+	if len(cock.manualReqs) != 1 || cock.manualReqs[0].Mode != "am" || cock.manualReqs[0].SquelchCNDb != 14 {
+		t.Errorf("AM manual tune not routed with its squelch: %+v", cock.manualReqs)
+	}
+}
