@@ -7,6 +7,27 @@ for tagged releases.
 
 ## [Unreleased]
 
+### Fixed
+- **MDC1200 never decoded a real radio — the receiver read the tones as
+  the data (#1220).** MDC1200 is XOR-precoded MSK: the radio sends one
+  cycle of 1200 Hz when a data bit equals the previous one and 1.5 cycles
+  of 1800 Hz when it changed, so the data stream is the running XOR of the
+  tone decisions. The front end sliced the tone sequence straight into the
+  sync hunt as if the line code were plain NRZ, and its own tests encoded
+  the same way, so every synthetic round-trip was green while the 40-bit
+  sync word could never match on air. The first on-air run (a Kenwood lab
+  decoding FleetSync through the identical DSP chain) showed it: FleetSync
+  8/8, MDC1200 "never locked". The tone decision now feeds a running XOR
+  (and slices at a fixed zero threshold, the FleetSync lesson), the format
+  is pinned literal-for-literal against the reference MDC1200 encoder
+  (26-byte burst layout and 208-bit tone sequences for two packets), and
+  audio the reference encoder produced decodes through the production
+  chain (`internal/radio/mdc1200/afsk/testdata`). Both the dedicated
+  `mdc1200.channels` path and the scanner-channel `decoders: [mdc1200]`
+  path share the fix. New `TestMDC1200Replay` (`GT_MDC1200_IQ`) replays a
+  capture through the production front end; an on-air capture from a
+  Motorola radio is still the confirmation.
+
 ## [v1.2.1] — 2026-09-27
 
 ### Added
@@ -59,26 +80,6 @@ for tagged releases.
   The config builder has a DCS polarity selector.
 
 ### Fixed
-- **MDC1200 never decoded a real radio — the receiver read the tones as
-  the data (#1220).** MDC1200 is XOR-precoded MSK: the radio sends one
-  cycle of 1200 Hz when a data bit equals the previous one and 1.5 cycles
-  of 1800 Hz when it changed, so the data stream is the running XOR of the
-  tone decisions. The front end sliced the tone sequence straight into the
-  sync hunt as if the line code were plain NRZ, and its own tests encoded
-  the same way, so every synthetic round-trip was green while the 40-bit
-  sync word could never match on air. The first on-air run (a Kenwood lab
-  decoding FleetSync through the identical DSP chain) showed it: FleetSync
-  8/8, MDC1200 "never locked". The tone decision now feeds a running XOR
-  (and slices at a fixed zero threshold, the FleetSync lesson), the format
-  is pinned literal-for-literal against the reference MDC1200 encoder
-  (26-byte burst layout and 208-bit tone sequences for two packets), and
-  audio the reference encoder produced decodes through the production
-  chain (`internal/radio/mdc1200/afsk/testdata`). Both the dedicated
-  `mdc1200.channels` path and the scanner-channel `decoders: [mdc1200]`
-  path share the fix. New `TestMDC1200Replay` (`GT_MDC1200_IQ`) replays a
-  capture through the production front end; an on-air capture from a
-  Motorola radio is still the confirmation.
-
 - **CTCSS tones open on the right tone, narrowband radios open the gate, and
   DCS squelch now detects codes (#1184, on-air follow-up).** Three defects in
   the conventional scanner's tone gates:
