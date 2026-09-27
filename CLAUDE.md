@@ -1537,6 +1537,30 @@ confirmation before any close-as-completed.
   Not decoded: Hytera EP (FID 0x68, 40-bit MI, vendor schedule), Kirisun, DES/AES in the voice
   path. SDRTrunk (Apache-2.0) is the layout reference; DSD-FME (GPL) was read for the
   conventions only, nothing ported.
+- **MDC1200 NEVER decoded a real radio in its whole life (#1220, 27 Sep): the line code is
+  XOR-precoded MSK, and the receiver sliced the TONES as the data.** The reference modem
+  (Kaufman's mdc-encode-decode, GPL — read for protocol facts only, nothing ported) sends one
+  cycle of 1200 Hz when a data bit equals the previous one and 1.5 cycles of 1800 Hz when it
+  changed; the data is the running XOR of the tone decisions, and the sync word 0x07092A446F
+  lives in the DATA domain. GT's `afsk.feedSymbol` pushed the tone bit straight into the sync
+  hunt as "plain NRZ", and its tests encoded the same way — the #764/#771 self-consistent trap
+  for four months, exposed only when the operator's Kenwood lab decoded FleetSync 8/8 through
+  the IDENTICAL DSP chain and MDC1200 "never locked". Interleave (16×7), CRC (reflected
+  CCITT, init 0, xorout FFFF, LSB byte first) and bit order were all already correct. Fix:
+  zero-threshold tone decision → running XOR (`r.data ^= 1` on 1800 Hz) → framer; the framer's
+  complemented-sync accept absorbs the XOR's unknown start state (an inverted discriminator
+  does NOT change a tone's frequency, so that is the only ambiguity). Pinned three ways:
+  `mdc1200/synth_test.go` holds `BurstBits`/`Precode` to LITERAL 26-byte burst layouts and
+  208-bit tone strings produced by the reference encoder (the leader 0x55… is one continuous
+  1800 Hz tone on air, not 0101); `afsk/airformat_test.go` decodes the reference ENCODER's
+  own 48 kHz audio (`testdata/mdc1200_ref_01_80_1234_48k.s16`) through `ProcessAudio`; and
+  GT's synthesiser was decoded by the reference DECODER offline (both directions agree).
+  All eight air-format tests fail against the old slicer (448 bits, 0 sync locks). Also
+  learned: the reference's `data[7..13]` are convolutional parity bytes (taps 0,2,5,6 over
+  the LSB-first header bits; `fecParity`), now generated so synthetic bursts match byte-for-
+  byte — the decoder still does not use them for correction. STILL ON-AIR-GATED (#764/#771):
+  `TestMDC1200Replay` (`GT_MDC1200_IQ`/`_RATE`/`_UNIT`, same loader as the FleetSync harness)
+  is the gate; ask for a capture of a keyup with a known unit ID.
 - **FleetSync (#1184) IS ON-AIR VERIFIED (16 Sep, reporter's Kenwood lab: FS-I and FS-II both
   decode live) — and the live run exposed a coexistence failure that is NOT yet root-caused.**
   Config: `fleetsync.channels` on RTL R1 + `scanner.conventional` on RTL R2 (`systems=0`,

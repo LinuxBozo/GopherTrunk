@@ -10,16 +10,29 @@
 //	    markHz=1200, spaceHz=1800 — CCIR FFSK)
 //	  → Mueller-Müller symbol-timing recovery
 //	    (internal/dsp/sync.MuellerMuller, 8 sps → 1 sample/symbol)
-//	  → DC-tracking slicer (NRZ bit on the wire)
-//	  → mdc1200/receiver.Receiver.Push(bit)
+//	  → zero-threshold tone decision (1200 Hz or 1800 Hz this bit)
+//	  → XOR-precoding decode (1800 Hz = the data bit CHANGED,
+//	    1200 Hz = it is the SAME as the previous one)
+//	  → mdc1200/receiver.Receiver.Push(data bit)
 //	  → events.KindMDC1200Message on the bus
 //
-// Layout mirrors internal/radio/aprs/afsk: one Receiver per (SDR,
-// MDC1200-frequency) pair, the daemon pumps the broker subscription
-// into Process. The difference from APRS is the line code: MDC1200 is
-// plain NRZ, so there is no NRZI stage — the slicer's bit feeds the
-// framer directly — and the FFSK tones are 1200/1800 Hz, not the
-// Bell-202 1200/2200 Hz.
+// Layout mirrors internal/radio/aprs/afsk and fleetsync/afsk: one
+// Receiver per (SDR, MDC1200-frequency) pair, the daemon (or the
+// conventional scanner, #1220) pumps IQ into it. The difference from
+// APRS is the line code. MDC1200 is XOR-precoded MSK (the reference
+// modem's own description): the radio sends one cycle of 1200 Hz when a
+// data bit equals the previous one and 1.5 cycles of 1800 Hz when it
+// changed, so the DATA stream is the running XOR of the tone decisions —
+// not the tone decisions themselves. Until #1220 this front end sliced
+// the tones straight into the framer as if the line code were plain NRZ
+// (its own tests encoded the same way, the #764/#771 self-consistent
+// trap), and the 40-bit sync word could never match a real Motorola
+// radio: the reporter's on-air FleetSync decoded through the identical
+// DSP chain while MDC1200 "never locked". The tone sense is unambiguous
+// (an inverted FM discriminator negates the audio, which does not change
+// a tone's frequency); only the running XOR's start state is unknown,
+// which complements the whole data stream, and the framer's
+// complemented-sync lock absorbs that.
 package afsk
 
 import (
@@ -105,8 +118,7 @@ type Receiver struct {
 	rsmpBuf     []float32
 	ffskBuf     []float32
 	symBuf      []float32
-	meanEMA     float32
-	meanReady   bool
+	data        byte // XOR-precoding state: the last data bit delivered
 	samplesSeen atomic.Uint64
 	bitsEmitted atomic.Uint64
 }
@@ -170,12 +182,24 @@ func (r *Receiver) Process(ctx context.Context, in <-chan []complex64) error {
 }
 
 // ProcessIQ runs one IQ chunk through FM → resample → FFSK
-// discrimination → MM symbol-time recovery → slice → push. Bursts
-// publish onto the bus before it returns.
+// discrimination → MM symbol-time recovery → tone decision → precoding
+// decode → push. Bursts publish onto the bus before it returns.
 func (r *Receiver) ProcessIQ(chunk []complex64) {
 	r.samplesSeen.Add(uint64(len(chunk)))
 	r.demodBuf = r.fm.Process(r.demodBuf, chunk)
-	r.rsmpBuf = r.rsmp.Process(r.rsmpBuf, r.demodBuf)
+	r.processAudio(r.demodBuf)
+}
+
+// ProcessAudio runs one chunk of already-discriminated FM audio (real
+// samples at InputRateHz — a receiver's discriminator tap or a mono audio
+// capture) through the same chain minus the FM demod.
+func (r *Receiver) ProcessAudio(chunk []float32) {
+	r.samplesSeen.Add(uint64(len(chunk)))
+	r.processAudio(chunk)
+}
+
+func (r *Receiver) processAudio(audio []float32) {
+	r.rsmpBuf = r.rsmp.Process(r.rsmpBuf, audio)
 	r.ffskBuf = r.ffsk.Discriminate(r.ffskBuf, r.rsmpBuf)
 	r.symBuf = r.mm.Process(r.symBuf, r.ffskBuf)
 	for _, s := range r.symBuf {
@@ -183,21 +207,28 @@ func (r *Receiver) ProcessIQ(chunk []complex64) {
 	}
 }
 
-// feedSymbol slices one recovered symbol to an NRZ bit (tracking DC
-// bias with a slow EMA) and pushes it into the framer. Unlike APRS
-// there is no NRZI decode — MDC1200 is plain NRZ.
+// feedSymbol decides one recovered symbol's tone at a fixed zero
+// threshold, applies the XOR-precoding decode and pushes the resulting
+// DATA bit into the framer.
+//
+// The threshold is zero, not a tracked mean, for the reason measured on
+// the FleetSync front end (fleetsync/afsk.feedSymbol): the FFSK stage
+// mixes to the tone midpoint and low-passes, so its output is DC-free and
+// sign-aligned by construction, and a tracked threshold drifts toward a
+// long single-tone run — which is exactly what an MDC1200 leader is (the
+// alternating 0x55 leader changes on every bit, so it is one continuous
+// 1800 Hz tone right up to the sync word).
+//
+// The decode: mark (positive, 1200 Hz) means this data bit equals the
+// previous one; space (non-positive, 1800 Hz) means it changed. One wrong
+// tone decision therefore complements every later bit of the burst — the
+// CRC rejects such a burst, as it would any other single error, and the
+// reference decoder's own sampler has the same per-bit error structure.
 func (r *Receiver) feedSymbol(s float32) {
-	if !r.meanReady {
-		r.meanEMA = s
-		r.meanReady = true
-	} else {
-		r.meanEMA += (s - r.meanEMA) * (1.0 / 64.0)
+	if s <= 0 {
+		r.data ^= 1
 	}
-	var bit byte
-	if s > r.meanEMA {
-		bit = 1
-	}
-	r.inner.Push(bit)
+	r.inner.Push(r.data)
 	r.bitsEmitted.Add(1)
 }
 
@@ -214,7 +245,7 @@ func (r *Receiver) Reset() {
 	r.rsmp.Reset()
 	r.ffsk.Reset()
 	r.mm = dspsync.NewMuellerMuller(float64(Oversample), mmGain)
-	r.meanReady = false
+	r.data = 0
 	r.inner.Reset()
 }
 

@@ -15,7 +15,7 @@ decodes that is not a trunked voice call, and the one eleven-place wiring
 pattern that carries each of them from a burst on the air to a row in the web
 console.
 [Part 2]({{ '/blog/deep-dives/beyond-voice-02-afsk-ffsk-fundamentals/' | relative_url }})
-ended with a 1200-baud stream of sliced NRZ bits and no idea what they mean.
+ended with a 1200-baud stream of data bits and no idea what they mean.
 This part gives them meaning for the first protocol in the series — Motorola's
 MDC1200 — and, because FleetSync was cloned from it, the clearest look at the template
 itself: a framer, a de-interleaver, a CRC, an opcode table, a bus event — and
