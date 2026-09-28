@@ -25,8 +25,11 @@ for tagged releases.
   chain (`internal/radio/mdc1200/afsk/testdata`). Both the dedicated
   `mdc1200.channels` path and the scanner-channel `decoders: [mdc1200]`
   path share the fix. New `TestMDC1200Replay` (`GT_MDC1200_IQ`) replays a
-  capture through the production front end; an on-air capture from a
-  Motorola radio is still the confirmation.
+  capture through the production front end. **On-air verified 28 Sep:**
+  the reporter's live run decoded eleven PTT ID bursts (start and end,
+  unit 0x1777, narrow and wide FM) on a scanner-channel decoder, and a
+  channelized slice of their IQ recording is now the committed real-air
+  regression (`internal/radio/mdc1200/afsk/testdata`).
 
 ## [v1.2.1] — 2026-09-27
 

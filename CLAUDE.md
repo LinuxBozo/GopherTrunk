@@ -1558,9 +1558,15 @@ confirmation before any close-as-completed.
   All eight air-format tests fail against the old slicer (448 bits, 0 sync locks). Also
   learned: the reference's `data[7..13]` are convolutional parity bytes (taps 0,2,5,6 over
   the LSB-first header bits; `fecParity`), now generated so synthetic bursts match byte-for-
-  byte — the decoder still does not use them for correction. STILL ON-AIR-GATED (#764/#771):
+  byte — the decoder still does not use them for correction. **ON-AIR VERIFIED (28 Sep):** the
+  reporter's live run on the fixed build decoded eleven PTT ID bursts (start 0x01/0x80 and end
+  0x01/0x00, unit 0x1777, 447.100 MHz, narrow and wide FM) through the scanner-channel path, and
+  their 2.4 MS/s scanner voice recording replays through `TestMDC1200Replay` (carrier found at
+  −1758 Hz, CRC-valid PTT ID (end)) despite being ADC-clipped at both rails (handheld in the
+  room, the #836 lesson: clipped ≠ undecodable). A 0.7 s channelized slice is the committed
+  real-air regression (`afsk/testdata/mdc1200_unit1777_pttid_end_48k.cs16`, `realair_test.go`).
   `TestMDC1200Replay` (`GT_MDC1200_IQ`/`_RATE`/`_UNIT`, same loader as the FleetSync harness)
-  is the gate; ask for a capture of a keyup with a known unit ID.
+  stays the instrument for the next capture. #1220 is closed on that confirmation.
 - **FleetSync (#1184) IS ON-AIR VERIFIED (16 Sep, reporter's Kenwood lab: FS-I and FS-II both
   decode live) — and the live run exposed a coexistence failure that is NOT yet root-caused.**
   Config: `fleetsync.channels` on RTL R1 + `scanner.conventional` on RTL R2 (`systems=0`,
