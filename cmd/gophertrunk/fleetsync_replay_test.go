@@ -169,13 +169,23 @@ func (c *fleetSyncCapture) signalStats() string {
 
 func loadFleetSyncCapture(t *testing.T, path string) *fleetSyncCapture {
 	t.Helper()
+	return loadAFSKCapture(t, path, "GT_FLEETSYNC_RATE", "GT_FLEETSYNC_FORMAT")
+}
+
+// loadAFSKCapture loads an IQ or discriminator-audio capture for one of
+// the 1200-baud FFSK harnesses (FleetSync, MDC1200), reading the rate and
+// format from the named environment variables: wav/flac containers are
+// content-sniffed and carry their own rate; headerless files are f32
+// (default), cs16, or audio (mono float32).
+func loadAFSKCapture(t *testing.T, path, rateEnv, formatEnv string) *fleetSyncCapture {
+	t.Helper()
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := &fleetSyncCapture{}
-	if v := os.Getenv("GT_FLEETSYNC_RATE"); v != "" {
-		c.rate = fsEnvFloat(t, "GT_FLEETSYNC_RATE", 0)
+	if v := os.Getenv(rateEnv); v != "" {
+		c.rate = fsEnvFloat(t, rateEnv, 0)
 	}
 	if _, isContainer := siglab.SniffContainer(raw); isContainer {
 		samples, rate, err := siglab.DecodeContainerFile(path)
@@ -189,7 +199,7 @@ func loadFleetSyncCapture(t *testing.T, path string) *fleetSyncCapture {
 		}
 		return c
 	}
-	format := strings.ToLower(os.Getenv("GT_FLEETSYNC_FORMAT"))
+	format := strings.ToLower(os.Getenv(formatEnv))
 	if format == "" {
 		format = "f32"
 	}
@@ -215,7 +225,7 @@ func loadFleetSyncCapture(t *testing.T, path string) *fleetSyncCapture {
 			c.audio[i] = math.Float32frombits(binary.LittleEndian.Uint32(raw[i*4:]))
 		}
 	default:
-		t.Fatalf("GT_FLEETSYNC_FORMAT=%q: want f32, cs16 or audio", format)
+		t.Fatalf("%s=%q: want f32, cs16 or audio", formatEnv, format)
 	}
 	return c
 }

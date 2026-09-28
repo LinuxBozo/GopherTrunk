@@ -8,7 +8,7 @@ keywords: MDC1200, MDC-1200, 0x07092A446F, PTT ID, ANI, FFSK 1200 baud, Motorola
 aka: [MDC1200, MDC-1200, "Motorola Data Communications"]
 autolink: true
 infobox:
-  - { label: Modulation, value: "1200-baud FFSK (NRZ)" }
+  - { label: Modulation, value: "1200-baud MSK, XOR-precoded (1800 Hz = bit changed)" }
   - { label: Sync word, value: "0x07092A446F (40 bits)" }
   - { label: Payload, value: "112 bits, 16×7 interleave" }
   - { label: CRC, value: "CRC-16/CCITT, reflected" }
@@ -50,8 +50,15 @@ narrowband-FM voice channel.[^fsync]
 ## How it works
 
 MDC1200 rides the same modulation class GopherTrunk already demodulates for MPT 1327 and
-[APRS](/reference/aprs/), but unlike APRS the line code is plain **NRZ**, not
-[NRZI](/reference/nrzi/). A receiver hunts the 40-bit sync word `0x07092A446F`
+[APRS](/reference/aprs/), but the line code is neither plain NRZ nor APRS's
+[NRZI](/reference/nrzi/): it is **XOR precoding** onto MSK tones. The radio
+compares each data bit with the previous one and sends one cycle of 1200 Hz
+when the bit is the same and 1.5 cycles of 1800 Hz when it changed, so the
+receiver recovers the data as the running XOR of its tone decisions (the
+reference modem calls the format "XOR-precoded MSK"). GopherTrunk's receiver
+read the tones as the data until
+[#1220](https://github.com/MattCheramie/GopherTrunk/issues/1220) and never
+matched a real radio. A receiver hunts the 40-bit sync word `0x07092A446F`
 (most-significant bit first), then captures the 112 payload bits that follow. Those bits are
 **column-interleaved** over a 16×7 grid: GopherTrunk's `deinterleave` reads them back in
 `bits[j*16+i]` order for `i` in 0..15 and `j` in 0..6, then packs the result LSB-first into 14

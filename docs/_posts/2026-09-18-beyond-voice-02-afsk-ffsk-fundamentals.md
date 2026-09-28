@@ -56,8 +56,8 @@ round.*
 | Audio-rate resampler | polyphase L/M to `baud × Oversample` | `internal/dsp/resampler_real.go` (`dsp.NewRealResampler`) |
 | Tone discriminator | mix by midpoint → Kaiser LPF → FM discriminate | `internal/dsp/demod/ffsk.go` (`demod.NewFFSK`, `Discriminate`) |
 | Symbol timing | closed-loop MM at 8 sps, chunk-safe | `internal/dsp/sync/clock.go` (`sync.NewMuellerMuller`) |
-| DC-tracking slicer | 1/64 EMA threshold, then NRZI or NRZ | `aprs/afsk/receiver.go`, `mdc1200/afsk/receiver.go` (`feedSymbol`) |
-| Zero-threshold slicer | `s > 0` → mark, polarity left to the framer | `fleetsync/afsk/receiver.go` (`feedSymbol`) |
+| DC-tracking slicer | 1/64 EMA threshold, then NRZI | `aprs/afsk/receiver.go` (`feedSymbol`) |
+| Zero-threshold slicer | `s > 0` → mark, polarity left to the framer | `fleetsync/afsk/receiver.go`, `mdc1200/afsk/receiver.go` (`feedSymbol`; MDC1200 then XOR-decodes the tone bits, see the correction below) |
 
 ## In this post
 
@@ -87,9 +87,16 @@ The front ends encode the choice as two constants:
 | Front end | Mark / space | Baud | Line code | Slicer |
 |---|---|---|---|---|
 | `aprs/afsk` (Bell 202) | 1200 / 2200 Hz | 1200 | NRZI | DC-tracking |
-| `mdc1200/afsk` (CCIR) | 1200 / 1800 Hz | 1200 | NRZ | DC-tracking |
+| `mdc1200/afsk` (CCIR) | 1200 / 1800 Hz | 1200 | XOR-precoded MSK (corrected, see below) | fixed zero (corrected) |
 | `fleetsync/afsk` (CCIR) | 1200 / 1800 Hz | 1200 (2400 accepted) | NRZ | fixed zero |
 | `mpt1327/receiver`, `dsc/ffsk` | 1200 / 1800, 1300 / 2100 Hz | 1200 | — | control-channel paths |
+
+> **Correction (27 Sep 2026, [#1220](https://github.com/MattCheramie/GopherTrunk/issues/1220)):**
+> this post originally listed MDC1200 as plain NRZ with a DC-tracking slicer,
+> which is what the receiver did — and why it never decoded a real radio.
+> MDC1200 is XOR-precoded MSK: 1200 Hz means "same bit as before", 1800 Hz
+> means "changed", and the data is the running XOR of the tone decisions.
+> The receiver now slices at a fixed zero threshold and XOR-decodes.
 
 Mark is binary 1 in every one of them — the CCIR convention `demod.FFSK`
 bakes into its output sign; `invertSlice` keeps positive meaning mark
