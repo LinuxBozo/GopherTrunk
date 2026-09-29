@@ -8,6 +8,23 @@ for tagged releases.
 ## [Unreleased]
 
 ### Fixed
+- **AM (air band) channels recorded thin, distorted audio when the carrier
+  sat a few kHz off the configured frequency (#1219).** The AM chain's
+  ±4.5 kHz channel filter was centred on the tuned frequency, so a carrier
+  off by the SDR's ppm error, the transmitter's tolerance, or a mis-entered
+  frequency kept its carrier but lost the far sideband: the envelope
+  detector then saw carrier + one sideband, and audio above ~1 kHz came out
+  at half level with distortion. The reporter's first on-air captures
+  (tuned 123.453 MHz) carry the carrier at −3315 Hz; the transmitter was
+  really at ≈123.4497 MHz, so 123.450 was the right setting and GopherTrunk
+  itself shifts nothing. The chain now finds the carrier (FFT peak within
+  ±4.5 kHz, the same window the AM squelch opens on) and mixes it to DC
+  before the channel filter, and logs `carrier_offset_hz` at call end when
+  it is ≥ 1 kHz so the operator can correct `frequency_hz` / `sdr.ppm`. On
+  both captures the as-captured decode now matches a re-centred decode
+  (audio correlation 1.000 / 0.999, was 0.954 / 0.886). Replay harness:
+  `GT_AM_IQ=<voice .cs16> go test ./internal/voice/composer -run
+  TestAMCaptureReplay -v`.
 - **MDC1200 never decoded a real radio — the receiver read the tones as
   the data (#1220).** MDC1200 is XOR-precoded MSK: the radio sends one
   cycle of 1200 Hz when a data bit equals the previous one and 1.5 cycles
