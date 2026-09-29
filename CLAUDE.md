@@ -1827,6 +1827,22 @@ confirmation before any close-as-completed.
   restarts its phase every IQ chunk, so a coherent tone measurement needs
   `AudioResampler{Enabled:true}`; and two carriers in one discriminator beat, so an "FM chain
   can't hear AM" counterfactual must use a lone carrier. On-air-gated (#764/#771).
+  **First on-air captures (28 Sep, reporter's own aircraft radio, the composer's
+  voice_iq_debug .cs16 at 2.4 MS/s — the file name carries channel + rate): the
+  reporter's "tunes best at 123.453, not 123.450" was NOT a GT frequency shift.**
+  The capture is the chain's input (convScanVoiceSource already mixed the LO offset
+  out), and the carrier sits at −3315 Hz of 123.453 ⇒ the transmitter as this SDR
+  sees it is ≈123.4497 MHz; 123.450 was right. What the offset DID expose: the AM
+  channel filter was centred on the TUNED frequency, so a few kHz of ppm/tuning
+  error cut the far sideband (−6 dB above ~1 kHz). `amCarrierAFC` (`am_afc.go`)
+  now finds the carrier (FFT peak within ±4.5 kHz, ≥15 dB over the window median,
+  holds on noise) and mixes it to DC ahead of the filter; as-captured vs
+  recentred audio correlation 0.954/0.886 → 1.000/0.999
+  (`TestAMCaptureReplay`, `GT_AM_IQ`). Also measured: 60–83 % of the decoded
+  energy is below 300 Hz (the reporter's hangar AC interference) — production's
+  default 300 Hz `fm_audio_highpass_hz` applies to AM too; the harness runs
+  without it. The 127-tap 3 kHz AM audio LPF has a ~2 kHz skirt (−2.4 dB at
+  2.5 kHz) — not changed. Intelligibility still needs the reporter's ears.
 - **A detector threshold in radians-per-sample is a SAMPLE-RATE trap (#1184 CTCSS).** The
   conventional scanner's CTCSS gate never opened on air: its Goertzel threshold was calibrated
   on 48 kHz unit tests, but the scanner feeds 2.4 MS/s, where the same deviation is 50x smaller

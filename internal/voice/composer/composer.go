@@ -966,7 +966,18 @@ func (c *Composer) runFMChain(ctx context.Context, serial string, iqCh <-chan []
 	// NFM channel. nil (the default) leaves the chain byte-for-byte unchanged.
 	chanFilter := c.newFMChannelFilter(intermediateHzf)
 	var amAudioLPF *filter.RealFIR
+	var amAFC *amCarrierAFC
 	if am {
+		// Centre the channel filter on the carrier, not the tuned
+		// frequency (am_afc.go): a few kHz of ppm / tuning error otherwise
+		// cuts the far sideband.
+		amAFC = newAMCarrierAFC(intermediateHzf)
+		defer func() {
+			if off, ok := amAFC.OffsetHz(); ok && math.Abs(off) >= amAFCReportHz {
+				c.log.Info("composer: AM carrier found off the tuned frequency; tracked and recentred, but set the channel's frequency_hz (or sdr.ppm) closer to it",
+					"device", serial, "carrier_offset_hz", int(math.Round(off)))
+			}
+		}()
 		chanFilter = newAMChannelFilter(intermediateHzf)
 		amAudioLPF = filter.NewRealFIR(filter.LowpassKaiser(127, amAudioCutoffHz/intermediateHzf, 8.6))
 	}
@@ -1118,6 +1129,9 @@ func (c *Composer) runFMChain(ctx context.Context, serial string, iqCh <-chan []
 			}
 			bt.observe(iq)
 			decimated := fe.Process(nil, iq)
+			if amAFC != nil {
+				decimated = amAFC.Process(decimated, decimated)
+			}
 			if chanFilter != nil {
 				// Band-limit to the configured NFM channel before the
 				// discriminator. Reuses chanScratch across chunks so the

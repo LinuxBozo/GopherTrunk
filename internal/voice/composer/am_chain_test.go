@@ -79,7 +79,9 @@ func recordAnalog(t *testing.T, proto string, iq []complex64) []int16 {
 		ch <- iq[i:min(i+4096, len(iq))]
 	}
 	want := len(iq) / 300 * 9 / 10 // 2.4 MS/s → 8 kHz, minus pipeline latency
-	waitFor(t, 3*time.Second, func() bool { return sink.total("CONV") >= want })
+	// A second of IQ per second of wait on top of the base 3 s, so a
+	// multi-second capture replay (am_capture_replay_test.go) fits too.
+	waitFor(t, 3*time.Second+time.Duration(len(iq))*time.Second/2_400_000, func() bool { return sink.total("CONV") >= want })
 	pcm := sink.pcmCopy("CONV")
 	return pcm[2000:]
 }
@@ -117,6 +119,58 @@ func TestComposerAMChainRecoversAirBandAudio(t *testing.T) {
 	fm := recordAnalog(t, "fm-conv", amToneIQ(n, 0.2, false))
 	if got := toneAmp(fm, 1000); got > levels[1]/10 {
 		t.Errorf("fixture: the FM chain recovered the AM tone at %.0f — the test would not distinguish the chains", got)
+	}
+}
+
+// mistunedAMIQ is 2.4 MS/s IQ of an AM carrier offHz from the tuned
+// frequency, modulated 30 % each by a 1 kHz and a 2 kHz tone.
+func mistunedAMIQ(n int, offHz float64) []complex64 {
+	const rate = 2_400_000.0
+	out := make([]complex64, n)
+	for i := range out {
+		t := float64(i) / rate
+		env := 0.1 * (1 + 0.3*math.Cos(2*math.Pi*1000*t) + 0.3*math.Cos(2*math.Pi*2000*t))
+		ph := 2 * math.Pi * offHz * t
+		out[i] = complex(float32(env*math.Cos(ph)), float32(env*math.Sin(ph)))
+	}
+	return out
+}
+
+// TestComposerAMChainTracksMistunedCarrier pins the #1219 on-air finding:
+// the reporter's captures (tuned 123.453 MHz) carry the carrier at −3315 Hz,
+// which leaves the far sideband outside the ±4.5 kHz channel filter centred
+// on the TUNED frequency — the 2 kHz tone then records at roughly half its
+// level. The chain must find the carrier and centre the filter on it, so a
+// few kHz of tuning / ppm error records the same audio as a centred carrier.
+func TestComposerAMChainTracksMistunedCarrier(t *testing.T) {
+	const n = 2_400_000 // 1 s
+	want := 0.3 * amAudioScale * 10_000
+	for _, off := range []float64{0, -3315, 3315} {
+		pcm := recordAnalog(t, "am-conv", mistunedAMIQ(n, off))
+		lo, hi := toneAmp(pcm, 1000), toneAmp(pcm, 2000)
+		t.Logf("carrier %+.0f Hz: 1 kHz tone %.0f, 2 kHz tone %.0f (want ~%.0f each)", off, lo, hi, want)
+		for _, got := range []float64{lo, hi} {
+			if got < want*0.8 || got > want*1.2 {
+				t.Errorf("carrier %+.0f Hz off the tuned frequency: tone at %.0f, want ~%.0f (a sideband is being cut)", off, got, want)
+			}
+		}
+	}
+}
+
+func TestAMCarrierAFCHoldsOnNoise(t *testing.T) {
+	a := newAMCarrierAFC(48_000)
+	x := make([]complex64, 48_000)
+	s := uint64(1)
+	for i := range x {
+		s = s*6364136223846793005 + 1442695040888963407
+		re := float32(int32(s>>32)) / (1 << 31)
+		s = s*6364136223846793005 + 1442695040888963407
+		im := float32(int32(s>>32)) / (1 << 31)
+		x[i] = complex(re, im)
+	}
+	a.Process(nil, x)
+	if off, locked := a.OffsetHz(); locked {
+		t.Fatalf("AFC locked to %+.0f Hz on noise alone, want it to hold (no carrier line)", off)
 	}
 }
 
