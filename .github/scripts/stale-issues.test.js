@@ -52,6 +52,33 @@ test("each stage is posted once, in order", () => {
   assert.equal(decide(issue(), [...after7, reminder(15, T0 + 15 * DAY)], T0 + 16 * DAY).action, "none");
 });
 
+test("run daily, it posts only on days 7/15/30/45/55 and closes on 60", () => {
+  // The workflow's real cadence: one run a day at 14:17 UTC, plus a second
+  // (manual) run the same day to show a re-run never double-posts. The
+  // maintainer's comment lands at 09:00, before the run, and at 20:00, after
+  // it: whole days of inactivity decide, whatever the time of day.
+  for (const hour of [9, 20]) {
+    const last = Date.parse(`2026-10-01T${String(hour).padStart(2, "0")}:00:00Z`);
+    const c = [maintainer(last)];
+    const acted = [];
+    for (let run = 0; run <= 75; run++) {
+      for (const offset of [0, 3 * 60 * 60 * 1000]) {
+        const now = Date.parse("2026-10-01T14:17:00Z") + run * DAY + offset;
+        const d = decide(issue(), c, now);
+        if (d.action === "warn") {
+          c.push(reminder(d.stage, now));
+          acted.push(`${d.days}:${d.stage}`);
+        } else if (d.action === "close") {
+          acted.push(`${d.days}:close`);
+          break;
+        }
+      }
+      if (acted.at(-1)?.endsWith(":close")) break;
+    }
+    assert.deepEqual(acted, ["7:7", "15:15", "30:30", "45:45", "55:55", "60:close"], `last reply at ${hour}:00`);
+  }
+});
+
 test("a missed run jumps to the current stage, no burst", () => {
   const d = decide(issue(), [maintainer(T0), reminder(7, T0 + 7 * DAY)], T0 + 31 * DAY);
   assert.deepEqual([d.action, d.stage], ["warn", 30]);
