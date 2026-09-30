@@ -1,0 +1,42 @@
+name: Stale issues
+
+# Daily reminder pass over open issues that are waiting on their reporter.
+# Reminders at 7, 15, 30, 45 and 55 days without a human reply; close as
+# "not planned" at 60 (never with less than 5 days' final notice). Issues
+# waiting on a maintainer, opened by a maintainer, or labelled keep-open /
+# pinned / security are never touched. The policy lives in
+# .github/scripts/stale-issues.js (unit-tested by stale-issues.test.js).
+on:
+  schedule:
+    - cron: "17 14 * * *" # daily, 14:17 UTC
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Log what would happen without commenting, labelling or closing"
+        type: boolean
+        default: true
+
+permissions:
+  issues: write
+
+concurrency:
+  group: stale-issues
+  cancel-in-progress: false
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+      - name: Policy tests
+        run: node --test .github/scripts/stale-issues.test.js
+      - uses: actions/github-script@v7
+        env:
+          # Scheduled runs act; a manual run is a dry run unless unticked.
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        with:
+          script: |
+            const stale = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/stale-issues.js`);
+            await stale.run({ github, context, core, dryRun: process.env.DRY_RUN === 'true' });
