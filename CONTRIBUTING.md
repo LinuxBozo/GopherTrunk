@@ -236,6 +236,21 @@ against the live GitHub Actions infrastructure before the stable
 tag goes out. Trigger via the **Actions → Release → Run workflow**
 button with the version field set.
 
+## Inactive issues
+
+When an issue is waiting on its reporter (a maintainer asked for a capture,
+a log or a retest and hasn't heard back), a daily workflow
+([`stale-issues.yml`](.github/workflows/stale-issues.yml)) posts a friendly
+reminder after 7, 15, 30, 45 and 55 days without a reply. After 60 days it
+closes the issue as *not planned*, always with at least 5 days' final notice.
+Any comment, even "still relevant", resets the clock. A closed issue can be
+reopened, or a new one opened that links back to it.
+
+The workflow never touches an issue that is waiting on a maintainer, an issue
+a maintainer opened, or an issue labelled `keep-open`, `pinned` or
+`security`. To test a policy change without posting anything, run the
+workflow manually from the Actions tab; manual runs are dry runs by default.
+
 ## Security issues
 
 If you've found a vulnerability, please follow the disclosure
