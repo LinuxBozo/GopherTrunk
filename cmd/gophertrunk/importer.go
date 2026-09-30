@@ -34,7 +34,7 @@ func (i *daemonImporter) Parse(s api.ImportSource) (api.ParsedSystemDTO, error) 
 	}
 	defer os.Remove(path)
 
-	parsed, err := parseImportFile(path, s.Kind)
+	parsed, err := parseImportFile(path, s.Kind, s.Filename)
 	if err != nil {
 		return api.ParsedSystemDTO{}, err
 	}
@@ -66,7 +66,7 @@ func (i *daemonImporter) Commit(sources []api.ImportSource, force bool) (api.Imp
 			return api.ImportCommitResult{}, err
 		}
 		tmpPaths = append(tmpPaths, tp)
-		ps, err := parseImportFile(tp, s.Kind)
+		ps, err := parseImportFile(tp, s.Kind, s.Filename)
 		if err != nil {
 			return api.ImportCommitResult{}, err
 		}
@@ -135,12 +135,21 @@ func writeTempUpload(s api.ImportSource) (string, error) {
 	return f.Name(), nil
 }
 
-func parseImportFile(path string, kind api.ImportSourceKind) (parsedSystem, error) {
+// parseImportFile parses the file at path. filename is the name the
+// operator gave the source (the upload's original filename): uploads are
+// parsed from a tempfile, so a native RadioReference CSV, which carries
+// no system name, takes its default name from filename rather than from
+// the tempfile's "gophertrunk-import-<n>" stem.
+func parseImportFile(path string, kind api.ImportSourceKind, filename string) (parsedSystem, error) {
 	switch kind {
 	case api.ImportSourcePDF:
 		return parsePDFFile(path)
 	case api.ImportSourceCSV:
-		return parseCSVFile(path, csvImportOpts{})
+		var opts csvImportOpts
+		if filename != "" {
+			opts.Name = filenameStem(filename)
+		}
+		return parseCSVFile(path, opts)
 	}
 	return parsedSystem{}, fmt.Errorf("import: unsupported kind %q", kind)
 }

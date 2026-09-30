@@ -19,6 +19,11 @@ Recorder-style talkgroup CSVs as it goes:
   sites — combine with `-name` / `-sysid` (see [native-CSV quick
   start](#quick-start--radioreference-native-csv)) and a separate
   `-pdf` (or bundle CSV) when you need control-channel frequencies.
+- **RadioReference.com native sites CSV** — the site table export
+  (`trs_sites_<id>.csv`: RFSS, site, NAC, description, county, and the
+  site's frequencies, control channels suffixed `c`). Auto-detected like
+  the talkgroup CSV and named the same way (see [sites
+  CSV](#radioreference-sites-csv)).
 - **Structured CSV bundles** — a single multi-section CSV file per
   system, format documented below. Use this when your data comes from
   somewhere other than RadioReference (the radio wiki for your region,
@@ -76,6 +81,28 @@ Trunked operators still need control-channel frequencies, which the
 native CSV doesn't carry. Either pass a `-pdf` alongside the `-csv`
 in the same invocation, or hand-edit the resulting
 `trunking.systems[].control_channels` block after the import.
+
+### RadioReference sites CSV
+
+The sites export (`trs_sites_<id>.csv`) carries the control-channel
+frequencies the talkgroup CSV lacks. Its header names only the first
+frequency column; each site's remaining frequencies continue in the
+row's unlabelled trailing cells, and the importer reads all of them.
+Every `c`-suffixed frequency becomes a control channel. Like the
+talkgroup CSV it has no system metadata, so `-name` / `-sysid` apply
+(filename stem by default):
+
+```
+gophertrunk import-pdf \
+  -csv trs_sites_2951.csv \
+  -name "My System" -sysid 2951 \
+  -config /etc/gophertrunk/config.yaml
+```
+
+A sites CSV and a talkgroup CSV import as two separate systems. To get
+one system with both, import the system's PDF instead, or copy the rows
+into a [CSV bundle](#csv-format). Use the TUI to drop sites you don't
+want before writing (a statewide system can list dozens).
 
 ## Quick start — CSV bundle
 

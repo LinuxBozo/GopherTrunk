@@ -52,6 +52,8 @@ func bomStrippedReader(r io.Reader) io.Reader {
 //     RadioReference's `/db/sid/<sid>/download` page serves. Carries
 //     no metadata; opts.Name and opts.SysID supply it (with the
 //     filename stem as a fallback for the name).
+//   - **Native RadioReference sites CSV** — the trs_sites_<id>.csv
+//     site/frequency table. Same metadata rules as the talkgroup CSV.
 func parseCSVFile(path string, opts csvImportOpts) (parsedSystem, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -71,11 +73,14 @@ func parseCSVFile(path string, opts csvImportOpts) (parsedSystem, error) {
 		sys, err = parseRRNativeCSVStream(bytes.NewReader(data), fillOpts)
 	case looksLikeRRSitesCSV(data):
 		// A RadioReference native *sites* CSV (trs_sites_<id>.csv) is
-		// neither a talkgroup CSV nor a multi-section bundle. Without a
-		// dedicated importer it would misroute to the bundle parser and
-		// fail with the opaque "before any # Section" error; report an
-		// actionable message instead. See issue #849.
-		err = errRRSitesCSVUnsupported
+		// neither a talkgroup CSV nor a multi-section bundle; it used to
+		// misroute to the bundle parser and fail with the opaque "before
+		// any # Section" error. See issue #849.
+		fillOpts := opts
+		if fillOpts.Name == "" {
+			fillOpts.Name = filenameStem(path)
+		}
+		sys, err = parseRRSitesCSVStream(bytes.NewReader(data), fillOpts)
 	default:
 		sys, err = parseCSVStream(bytes.NewReader(data))
 	}
@@ -593,18 +598,6 @@ func looksLikeRRNativeCSV(data []byte) bool {
 	return hits >= 3
 }
 
-// errRRSitesCSVUnsupported is returned when an uploaded CSV looks like a
-// RadioReference native *sites* export (the trs_sites_<id>.csv site /
-// frequency table) rather than a talkgroup CSV or a multi-section bundle.
-// GopherTrunk has no importer for that shape yet (see issue #849), so we
-// surface an actionable message instead of letting it misroute to the
-// bundle parser and fail with the opaque "before any # Section" error.
-var errRRSitesCSVUnsupported = errors.New(
-	"this looks like a RadioReference sites CSV (a site/frequency table, e.g. " +
-		"trs_sites_<id>.csv), which GopherTrunk can't import directly yet — import " +
-		"the system's PDF (Download → PDF) or its Talkgroups CSV, or wrap the data in " +
-		"a multi-section bundle (see docs/import.md)")
-
 // looksLikeRRSitesCSV reports whether data looks like a RadioReference
 // native sites CSV: no `# Section:` markers anywhere AND a header row that
 // carries a frequency column together with a site / RFSS / NAC column. The
@@ -722,4 +715,107 @@ func parseBool(s string, def bool) bool {
 		return false
 	}
 	return def
+}
+
+// rrSitesAliases maps RadioReference's sites-export headers (RFSS, Site
+// Dec, Site Hex, Description, County Name, Frequencies) onto the canonical
+// keys. Lookup is case-insensitive via columnMap.
+var rrSitesAliases = map[string][]string{
+	"rfss":        {"rfss_id", "rfssid"},
+	"site_dec":    {"site_id", "siteid", "site", "site dec"},
+	"site_hex":    {"site hex"},
+	"site_name":   {"description", "sitename", "site name", "name"},
+	"county":      {"county name", "county_name"},
+	"frequencies": {"frequency", "freqs", "freq"},
+}
+
+// parseRRSitesCSVStream parses RadioReference's native sites CSV
+// (trs_sites_<id>.csv, issue #849). The header names the first frequency
+// column only: every site's frequency list continues into the trailing,
+// unnamed cells of its row (one MHz value per cell, `c` suffix marking a
+// control channel), so every cell from the Frequencies column to the end
+// of the row is read. The export carries no system metadata, so opts.Name
+// / opts.SysID supply it, exactly like the native talkgroup CSV. A site
+// row without any frequency is skipped rather than failing the import.
+func parseRRSitesCSVStream(r io.Reader, opts csvImportOpts) (parsedSystem, error) {
+	sys := parsedSystem{Protocol: "p25", Name: opts.Name, SysID: opts.SysID}
+	scanner := bufio.NewScanner(bomStrippedReader(r))
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	var header []string
+	var col map[string]int
+	lineNum := 0
+	for scanner.Scan() {
+		lineNum++
+		raw := scanner.Text()
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		fields, err := splitCSVLine(raw)
+		if err != nil {
+			return sys, fmt.Errorf("line %d: %w", lineNum, err)
+		}
+		if header == nil {
+			header = fields
+			col, _ = columnMap(header, rrSitesAliases)
+			if _, ok := col["frequencies"]; !ok {
+				return sys, fmt.Errorf("RR sites CSV header missing a Frequencies column (header: %s)", strings.Join(header, ","))
+			}
+			continue
+		}
+		name := cell(fields, col, "site_name")
+		siteID, siteOK := parseRRSiteID(cell(fields, col, "site_dec"), cell(fields, col, "site_hex"))
+		if name == "" && siteOK {
+			name = fmt.Sprintf("Site %d", siteID)
+		}
+		if name == "" {
+			continue
+		}
+		var freqs []parsedFreq
+		for i := col["frequencies"]; i < len(fields); i++ {
+			fs, err := parseCSVFrequencies(strings.TrimSpace(fields[i]))
+			if err != nil {
+				return sys, fmt.Errorf("sites row %d (%q): %w", lineNum, name, err)
+			}
+			freqs = append(freqs, fs...)
+		}
+		if len(freqs) == 0 {
+			continue
+		}
+		rfss, _ := strconv.Atoi(cell(fields, col, "rfss"))
+		sys.Sites = append(sys.Sites, parsedSite{
+			RFSS:        rfss,
+			SiteID:      siteID,
+			SiteName:    name,
+			Cty:         cell(fields, col, "county"),
+			Frequencies: freqs,
+			Include:     true,
+		})
+	}
+	if err := scanner.Err(); err != nil {
+		return sys, fmt.Errorf("csv scan: %w", err)
+	}
+	if sys.Name == "" {
+		return sys, errors.New("native RR sites CSV: missing system name (pass -name or use a filename stem)")
+	}
+	if len(sys.Sites) == 0 {
+		return sys, errors.New("native RR sites CSV: no sites with frequencies found")
+	}
+	return sys, nil
+}
+
+// parseRRSiteID reads the site number from the decimal column (RR
+// zero-pads it, e.g. "004"), falling back to the hex column.
+func parseRRSiteID(dec, hex string) (int, bool) {
+	if dec != "" {
+		if v, err := strconv.Atoi(dec); err == nil {
+			return v, true
+		}
+	}
+	if hex != "" {
+		if v, err := strconv.ParseInt(hex, 16, 32); err == nil {
+			return int(v), true
+		}
+	}
+	return 0, false
 }
