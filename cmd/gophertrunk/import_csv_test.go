@@ -1,10 +1,12 @@
 package main
 
 import (
-	"errors"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/MattCheramie/GopherTrunk/internal/api"
 )
 
 func TestParseCSVStream_HappyPath(t *testing.T) {
@@ -435,28 +437,118 @@ func TestParseRRNativeCSVStream_BOM(t *testing.T) {
 	}
 }
 
-// TestParseCSVFile_RRSitesCSVUnsupported reproduces the file reported in
-// issue #849: a RadioReference native *sites* CSV (trs_sites_<id>.csv),
-// which has no importer. Before this change it misrouted to the bundle
-// parser and failed with the opaque "before any # Section" error; now it
-// returns an actionable message naming the sites-CSV format.
-func TestParseCSVFile_RRSitesCSVUnsupported(t *testing.T) {
+// TestParseCSVFile_RRSitesCSV imports the RadioReference native *sites*
+// CSV attached to issue #849 (testdata/rr_trs_sites_2951.csv, verbatim).
+// It used to fail: first with the opaque "before any # Section" bundle
+// error, then with a "can't import directly yet" message. The fixture's
+// header names only the first frequency column; each site's frequency
+// list runs on into the row's trailing unnamed cells.
+func TestParseCSVFile_RRSitesCSV(t *testing.T) {
+	sys, err := parseCSVFile("testdata/rr_trs_sites_2951.csv", csvImportOpts{})
+	if err != nil {
+		t.Fatalf("parseCSVFile: %v", err)
+	}
+	if sys.Name != "rr_trs_sites_2951" {
+		t.Errorf("Name = %q, want the filename stem", sys.Name)
+	}
+	if len(sys.Sites) != 75 {
+		t.Fatalf("Sites = %d, want 75", len(sys.Sites))
+	}
+
+	// Row 1: RFSS 1, site "004", four frequencies across four cells.
+	s0 := sys.Sites[0]
+	if s0.RFSS != 1 || s0.SiteID != 4 || s0.SiteName != "Montreal (headquarters)" || s0.Cty != "Montreal" || !s0.Include {
+		t.Errorf("site 0 = %+v", s0)
+	}
+	want := []parsedFreq{
+		{Hz: 857237500, ControlChannel: true},
+		{Hz: 857487500},
+		{Hz: 857737500, ControlChannel: true},
+		{Hz: 857987500, ControlChannel: true},
+	}
+	if !reflect.DeepEqual(s0.Frequencies, want) {
+		t.Errorf("site 0 frequencies = %+v, want %+v", s0.Frequencies, want)
+	}
+
+	total := 0
+	for _, site := range sys.Sites {
+		total += len(site.Frequencies)
+	}
+	if total != 193 {
+		t.Errorf("total frequencies = %d, want 193 (every trailing cell read)", total)
+	}
+	if got := len(collectControlChannels(sys)); got != 42 {
+		t.Errorf("distinct control channels = %d, want 42", got)
+	}
+
+	// Two different sites share site number 013; both must survive.
+	var shared []string
+	for _, site := range sys.Sites {
+		if site.SiteID == 13 {
+			shared = append(shared, site.SiteName)
+		}
+	}
+	if !reflect.DeepEqual(shared, []string{"Carillion", "Hertel"}) {
+		t.Errorf("site 13 rows = %v, want [Carillion Hertel]", shared)
+	}
+}
+
+// TestParseCSVFile_RRSitesCSVMerges pins the whole path the web and CLI
+// importers take: the parsed sites CSV must merge into a config that
+// passes validation.
+func TestParseCSVFile_RRSitesCSVMerges(t *testing.T) {
+	sys, err := parseCSVFile("testdata/rr_trs_sites_2951.csv", csvImportOpts{Name: "Quebec", SysID: "2951"})
+	if err != nil {
+		t.Fatalf("parseCSVFile: %v", err)
+	}
 	dir := t.TempDir()
-	path := dir + "/trs_sites_2951HQ.csv"
-	body := "RFSS,Site Dec,Site Hex,Site NAC,Description,County Name,Lat,Lon,Range,Frequencies\n" +
-		"1,1,001,293,Downtown,Maricopa,33.4,-112.0,20,851.0125c 851.2625 852.0125\n"
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+	res, err := mergeIntoConfig([]parsedSystem{sys}, mergeOptions{ConfigPath: dir + "/config.yaml", DryRun: true})
+	if err != nil {
+		t.Fatalf("mergeIntoConfig: %v", err)
+	}
+	if !strings.Contains(string(res.ConfigYAML), "Quebec") {
+		t.Errorf("merged YAML does not carry the system:\n%s", res.ConfigYAML)
+	}
+}
+
+// TestParseImportFile_CSVNameFromUploadFilename: uploads are parsed from
+// a tempfile, so the default system name must come from the operator's
+// original filename, not the tempfile's "gophertrunk-import-<n>" stem.
+func TestParseImportFile_CSVNameFromUploadFilename(t *testing.T) {
+	data, err := os.ReadFile("testdata/rr_trs_sites_2951.csv")
+	if err != nil {
 		t.Fatal(err)
 	}
-	_, err := parseCSVFile(path, csvImportOpts{})
-	if err == nil {
-		t.Fatal("parseCSVFile: expected an error for a native RR sites CSV, got nil")
+	tmp := t.TempDir() + "/gophertrunk-import-123.csv"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		t.Fatal(err)
 	}
-	if !errors.Is(err, errRRSitesCSVUnsupported) {
-		t.Fatalf("error = %v, want errRRSitesCSVUnsupported", err)
+	sys, err := parseImportFile(tmp, api.ImportSourceCSV, "trs_sites_2951.csv")
+	if err != nil {
+		t.Fatalf("parseImportFile: %v", err)
 	}
-	if strings.Contains(err.Error(), "# Section") {
-		t.Errorf("error still surfaces the opaque bundle message: %v", err)
+	if sys.Name != "trs_sites_2951" {
+		t.Errorf("Name = %q, want trs_sites_2951", sys.Name)
+	}
+}
+
+// TestParseRRSitesCSVStream_Edges covers what the fixture doesn't: a
+// hex-only site column, a site row with no frequencies (skipped), and a
+// malformed frequency (an error naming the row).
+func TestParseRRSitesCSVStream_Edges(t *testing.T) {
+	const in = "RFSS,Site Hex,Description,Frequencies\n" +
+		"2,1A,Alpha,851.0125c,851.2625\n" +
+		"2,1B,Empty,\n"
+	sys, err := parseRRSitesCSVStream(strings.NewReader(in), csvImportOpts{Name: "T"})
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(sys.Sites) != 1 || sys.Sites[0].SiteID != 26 || sys.Sites[0].RFSS != 2 || len(sys.Sites[0].Frequencies) != 2 {
+		t.Fatalf("sites = %+v", sys.Sites)
+	}
+	_, err = parseRRSitesCSVStream(strings.NewReader("RFSS,Site Dec,Description,Frequencies\n1,1,Bad,851.0125x\n"), csvImportOpts{Name: "T"})
+	if err == nil || !strings.Contains(err.Error(), "Bad") {
+		t.Errorf("malformed frequency: err = %v, want an error naming the site", err)
 	}
 }
 

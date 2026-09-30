@@ -86,7 +86,7 @@ func importParseFunc() configtui.ParseFunc {
 		default:
 			return config.SystemConfig{}, nil, fmt.Errorf("unsupported import kind %q (want pdf or csv)", kind)
 		}
-		ps, err := parseImportFile(path, k)
+		ps, err := parseImportFile(path, k, path)
 		if err != nil {
 			return config.SystemConfig{}, nil, err
 		}

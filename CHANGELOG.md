@@ -8,6 +8,17 @@ for tagged releases.
 ## [Unreleased]
 
 ### Fixed
+- **RadioReference sites CSVs (`trs_sites_<id>.csv`) now import (#849).**
+  The importer used to reject them, first with an opaque "data at line 1
+  before any # Section marker" error and later with a "can't import
+  directly yet" message. It now reads the site table: RFSS, site number
+  (decimal, or hex), description, county, and every frequency. The export
+  names only the first frequency column and spills the rest into unnamed
+  trailing cells, and all of them are read, with `c`-suffixed entries as
+  control channels. Pinned against the reporter's own 75-site export.
+  Also fixed: a native RadioReference CSV uploaded through the web
+  importer was named after its tempfile (`gophertrunk-import-<n>`); it now
+  takes the uploaded file's name.
 - **AM (air band) channels recorded thin, distorted audio when the carrier
   sat a few kHz off the configured frequency (#1219).** The AM chain's
   ±4.5 kHz channel filter was centred on the tuned frequency, so a carrier
