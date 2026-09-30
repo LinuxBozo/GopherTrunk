@@ -10,3 +10,13 @@ issue #1184: a Radtel RT-880G keyed on 447.100 MHz NFM with and without a
 detector runs at the rate the scanner feeds it.
 
 Format: interleaved little-endian int16 I/Q, 48 000 samples/s.
+
+`am_kric_126400k_carrier_48k.cs16` and `am_kric_126400k_noise_48k.cs16` are
+1.2 s slices (0.1 s–1.3 s and 1.7 s–2.9 s) of an on-air capture posted by
+@v2maldo on issue #1219: 126.400 MHz AM (KRIC Potomac Departure), recorded
+by GopherTrunk's per-call voice IQ debug tap (2.4 MS/s cs16, channel at DC).
+The transmitter is keyed for the first ~1.5 s of the capture and receiver
+noise follows, so the two slices are carrier + voice and noise only, from
+the same receiver at the same gain. Channelized to 48 kHz the same way as
+the CTCSS slices. Used by `am_realair_test.go` (squelch) and by
+`internal/voice/composer/am_realair_test.go` (carrier tracking).

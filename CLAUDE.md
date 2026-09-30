@@ -1842,7 +1842,17 @@ confirmation before any close-as-completed.
   energy is below 300 Hz (the reporter's hangar AC interference) — production's
   default 300 Hz `fm_audio_highpass_hz` applies to AM too; the harness runs
   without it. The 127-tap 3 kHz AM audio LPF has a ~2 kHz skirt (−2.4 dB at
-  2.5 kHz) — not changed. Intelligibility still needs the reporter's ears.
+  2.5 kHz) — not changed.
+  **AM IS ON-AIR VERIFIED (29 Sep):** on a build with #1227 the reporter heard
+  "very good and clear" audio, on frequency, with no extra noise or artifacts.
+  Their 126.400 MHz KRIC capture (carrier 0–1.5 s, receiver noise after unkey) is
+  now two 48 kHz real-air slices in `scanner/conventional/testdata/am_kric_*`,
+  pinning the squelch (carrier C/N 47–61 dB, noise 2.7–6.1 dB) and the carrier
+  tracking. Measure a tuning-error regression in the 1–3 kHz band, NOT by audio
+  correlation: that capture is ~84 % hum below 300 Hz, so the pre-#1227 chain
+  still correlates 0.995 with a 3.3 kHz error while losing 4.1 dB above 1 kHz
+  (`TestAMChainRealAirTuningErrorKeepsAudio`). The reporter's follow-up ask,
+  ACARS decode off the scanner (like the MDC1200/FleetSync taps), is not built.
 - **A detector threshold in radians-per-sample is a SAMPLE-RATE trap (#1184 CTCSS).** The
   conventional scanner's CTCSS gate never opened on air: its Goertzel threshold was calibrated
   on 48 kHz unit tests, but the scanner feeds 2.4 MS/s, where the same deviation is 50x smaller
