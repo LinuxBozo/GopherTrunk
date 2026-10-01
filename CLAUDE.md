@@ -1853,6 +1853,33 @@ confirmation before any close-as-completed.
   still correlates 0.995 with a 3.3 kHz error while losing 4.1 dB above 1 kHz
   (`TestAMChainRealAirTuningErrorKeepsAudio`). The reporter's follow-up ask,
   ACARS decode off the scanner (like the MDC1200/FleetSync taps), is not built.
+- **ACARS (#1231) decodes off a scanner AM channel (`mode: am`, `decoders: [acars]`) —
+  verified against acarsdec in BOTH directions, live run still pending.** The reporter's
+  capture (rtl_fm AM audio at 12.5 kHz + acarsdec's text decode) is a GitHub attachment
+  this environment's proxy refuses, so the real-air pin is acarsdec's own `test.wav`
+  (4-channel 12 kHz AM audio, 7 messages): GT decodes all 7 to acarsdec's fields, and
+  acarsdec decodes `receiver.SynthAudio`. Literal on-air blocks from it pin the parser
+  (`acars_test.go`); the WAV itself is GPL repo content and is NOT committed. Lessons:
+  (1) **the line code was settled empirically, not from a spec**: of the four
+  tone/line-code mappings acarsdec decodes only "2400 Hz = data bit equals the previous
+  one, 1200 Hz = it changed" (MDC1200's construction with the tones swapped).
+  (2) **A tone-deciding (FFSK discriminator) front end is the wrong tool for this MSK**:
+  data = running XOR of the tone decisions, so one tone error inverts the REST of the
+  block (measured: one error at byte 11 complemented 80 bytes; 5/7 decoded). The
+  coherent detector (`receiver/msk.go`) reads each bit from the absolute phase at the
+  bit boundary after de-rotating by k·π/2 — an error stays one bit — and decodes 7/7,
+  matching or beating acarsdec at every white-noise level added to `test.wav`. Its
+  timing loop runs Gardner on the ONE-BIT phase difference (the per-sample frequency
+  slipped bits under noise) and drops its gain once the framer locks; the 128-bit
+  pre-key is one steady tone and carries no timing information, so pull-in happens in
+  the sync characters. (3) **A 16-bit check over many repair candidates validates
+  garbage**: three parity errors give 512 candidates (≈0.8% false accept); repairs are
+  accepted only when unique AND printable — 70/20 000 parity-valid garbage blocks
+  validated without the guards, 0 with them. (4) acarsdec stalls on digitally-silent
+  leading audio; give synthetic files a noise floor before reading a miss as a format
+  difference. Gate (#764/#771): the reporter's own file through
+  `GT_ACARS_AUDIO=<wav> go test ./cmd/gophertrunk -run TestACARSReplay -v`, then a live
+  scanner run. Known limit: an ACARS burst also opens an ordinary AM "call".
 - **A detector threshold in radians-per-sample is a SAMPLE-RATE trap (#1184 CTCSS).** The
   conventional scanner's CTCSS gate never opened on air: its Goertzel threshold was calibrated
   on 48 kHz unit tests, but the scanner feeds 2.4 MS/s, where the same deviation is 50x smaller

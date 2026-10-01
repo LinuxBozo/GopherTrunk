@@ -8,6 +8,8 @@ import (
 
 	"github.com/MattCheramie/GopherTrunk/internal/config"
 	"github.com/MattCheramie/GopherTrunk/internal/events"
+	"github.com/MattCheramie/GopherTrunk/internal/radio/acars"
+	acarsrx "github.com/MattCheramie/GopherTrunk/internal/radio/acars/receiver"
 	"github.com/MattCheramie/GopherTrunk/internal/scanner/conventional"
 	"github.com/MattCheramie/GopherTrunk/internal/storage"
 )
@@ -63,12 +65,48 @@ func TestConvDataDecoderFactoryPublishesWithChannelIdentity(t *testing.T) {
 	}
 }
 
+// The factory's ACARS decoder (#1231), fed an AM channel at the scanner's
+// channel rate, publishes onto the bus with the channel's identity.
+func TestConvDataDecoderFactoryPublishesACARS(t *testing.T) {
+	bus := events.NewBus(64)
+	defer bus.Close()
+	sub := bus.Subscribe()
+	defer sub.Close()
+	dec, err := convDataDecoderFactory(bus, "CONV-SDR", nil)(
+		conventional.Channel{Label: "ACARS", FrequencyHz: 131_550_000, Mode: "am"}, conventional.DecoderACARS, 48_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blk := acars.Block{Mode: '2', Address: "N123GT", Ack: 0x15, Label: "H1", BlockID: '5', Text: "M01AGT0042"}
+	iq := append(make([]complex64, 4800), acarsrx.SynthAMIQ(acars.EncodeBlock(blk), 48_000, 700, 0.6)...)
+	iq = append(iq, make([]complex64, 4800)...)
+	for i := 0; i < len(iq); i += 4096 {
+		dec.ProcessIQ(iq[i:min(i+4096, len(iq))])
+	}
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case ev := <-sub.C:
+			msg, ok := ev.Payload.(storage.ACARSMessage)
+			if ev.Kind != events.KindACARSMessage || !ok || !msg.CRCOK {
+				continue
+			}
+			if msg.Address != "N123GT" || msg.FlightID != "GT0042" || msg.Serial != "CONV-SDR" || msg.FrequencyHz != 131_550_000 {
+				t.Fatalf("published %+v", msg)
+			}
+			return
+		case <-deadline:
+			t.Fatal("no CRC-valid ACARS block published")
+		}
+	}
+}
+
 func TestConvDataDecoderFactoryBuildsBothAndRejectsBadInput(t *testing.T) {
 	bus := events.NewBus(8)
 	defer bus.Close()
 	factory := convDataDecoderFactory(bus, "S", nil)
 	ch := conventional.Channel{FrequencyHz: 146_670_000}
-	for _, kind := range []string{conventional.DecoderMDC1200, conventional.DecoderFleetSync} {
+	for _, kind := range []string{conventional.DecoderMDC1200, conventional.DecoderFleetSync, conventional.DecoderACARS} {
 		if d, err := factory(ch, kind, 48_000); err != nil || d == nil {
 			t.Errorf("%s: %v", kind, err)
 		}
@@ -85,11 +123,12 @@ func TestConvDataDecoderFactoryBuildsBothAndRejectsBadInput(t *testing.T) {
 }
 
 func TestConvChannelDecoders(t *testing.T) {
-	mdc, fs := convChannelDecoders([]config.ConvChannelConfig{
+	mdc, fs, acars := convChannelDecoders([]config.ConvChannelConfig{
 		{FrequencyHz: 1},
 		{FrequencyHz: 2, Decoders: []string{"fleetsync"}},
+		{FrequencyHz: 3, Mode: "am", Decoders: []string{"acars"}},
 	})
-	if mdc || !fs {
-		t.Fatalf("mdc=%v fs=%v, want false/true", mdc, fs)
+	if mdc || !fs || !acars {
+		t.Fatalf("mdc=%v fs=%v acars=%v, want false/true/true", mdc, fs, acars)
 	}
 }

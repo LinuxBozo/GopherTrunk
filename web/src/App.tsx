@@ -27,6 +27,7 @@ import { DSC } from "./panels/DSC";
 import { ADSB } from "./panels/ADSB";
 import { MDC1200 } from "./panels/MDC1200";
 import { FleetSync } from "./panels/FleetSync";
+import { ACARS } from "./panels/ACARS";
 import { LoRa } from "./panels/LoRa";
 import { Metrics } from "./panels/Metrics";
 import { Pagers } from "./panels/Pagers";
@@ -209,6 +210,7 @@ export function App() {
           <Route path="/adsb" element={<ADSB />} />
           <Route path="/mdc1200" element={<MDC1200 />} />
           <Route path="/fleetsync" element={<FleetSync />} />
+          <Route path="/acars" element={<ACARS />} />
           <Route path="/lora" element={<LoRa />} />
           <Route path="/metrics" element={<Metrics />} />
           <Route path="/devices" element={<Devices />} />

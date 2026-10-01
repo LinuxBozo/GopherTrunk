@@ -6,12 +6,13 @@ import (
 
 	"github.com/MattCheramie/GopherTrunk/internal/config"
 	"github.com/MattCheramie/GopherTrunk/internal/events"
+	acarsrx "github.com/MattCheramie/GopherTrunk/internal/radio/acars/receiver"
 	fleetsyncafsk "github.com/MattCheramie/GopherTrunk/internal/radio/fleetsync/afsk"
 	mdc1200afsk "github.com/MattCheramie/GopherTrunk/internal/radio/mdc1200/afsk"
 	"github.com/MattCheramie/GopherTrunk/internal/scanner/conventional"
 )
 
-// convDataDecoderFactory builds the MDC1200 / FleetSync decoders a
+// convDataDecoderFactory builds the MDC1200 / FleetSync / ACARS decoders a
 // scanner.conventional channel names in `decoders` (issue #1220). They are
 // the same front ends the mdc1200.channels / fleetsync.channels receivers
 // run, fed the scanner's channel-filtered IQ at rateHz instead of a whole
@@ -48,14 +49,24 @@ func convDataDecoderFactory(bus *events.Bus, serial string, log *slog.Logger) co
 				Bus:         bus,
 				Log:         log,
 			})
+		case conventional.DecoderACARS:
+			// #1231: the decoder envelope-detects the AM channel IQ itself.
+			return acarsrx.New(acarsrx.Options{
+				InputRateHz: rate,
+				SourceName:  source,
+				Serial:      serial,
+				FrequencyHz: ch.FrequencyHz,
+				Bus:         bus,
+				Log:         log,
+			})
 		}
 		return nil, fmt.Errorf("unknown decoder %q", kind)
 	}
 }
 
 // convChannelDecoders reports whether any scanner.conventional channel runs
-// the MDC1200 / FleetSync decoder.
-func convChannelDecoders(chs []config.ConvChannelConfig) (mdc, fs bool) {
+// the MDC1200 / FleetSync / ACARS decoder.
+func convChannelDecoders(chs []config.ConvChannelConfig) (mdc, fs, acars bool) {
 	for _, ch := range chs {
 		for _, d := range ch.Decoders {
 			switch d {
@@ -63,8 +74,10 @@ func convChannelDecoders(chs []config.ConvChannelConfig) (mdc, fs bool) {
 				mdc = true
 			case conventional.DecoderFleetSync:
 				fs = true
+			case conventional.DecoderACARS:
+				acars = true
 			}
 		}
 	}
-	return mdc, fs
+	return mdc, fs, acars
 }

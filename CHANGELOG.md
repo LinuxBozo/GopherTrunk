@@ -7,6 +7,20 @@ for tagged releases.
 
 ## [Unreleased]
 
+### Added
+- **ACARS decoding on conventional-scanner AM channels (#1231).** A
+  `scanner.conventional` entry with `mode: am` and `decoders: [acars]`
+  decodes the VHF air-band aircraft data link (131.550 / 131.525 /
+  130.025 MHz …): 2400 bit/s MSK on an AM carrier, demodulated coherently,
+  with odd-parity / block-check error repair. Blocks land in a new
+  `acars_log` table, `GET /api/v1/acars/messages`, an **ACARS** web panel and
+  the `acars.message` event, tagged with the channel frequency. The scanner
+  holds the channel up to 1 s while a block is being framed. Verified
+  against acarsdec in both directions: GopherTrunk decodes all seven
+  real-air messages in acarsdec's test recording to the same fields, and
+  acarsdec decodes GopherTrunk's synthesised blocks. Not yet confirmed on a
+  live scanner run. See docs/acars.md.
+
 ### Fixed
 - **RadioReference sites CSVs (`trs_sites_<id>.csv`) now import (#849).**
   The importer used to reject them, first with an opaque "data at line 1

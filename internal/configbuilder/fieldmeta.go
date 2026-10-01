@@ -348,7 +348,7 @@ var fieldMetas = map[string]FieldMeta{
 
 	// ---- Retention ---------------------------------------------------------
 	"RetentionConfig.CallLogDays": {Help: "Delete call-log rows older than this many days. 0 disables the call-log sweep."},
-	"RetentionConfig.LogDays":     {Help: "Delete decoder-log rows (pager, aprs, vessel, dsc, aircraft, mdc1200, fleetsync, m17) older than this. 0 disables."},
+	"RetentionConfig.LogDays":     {Help: "Delete decoder-log rows (pager, aprs, vessel, dsc, aircraft, mdc1200, fleetsync, acars, m17) older than this. 0 disables."},
 	"RetentionConfig.FilesDays":   {Help: "Delete recorded WAV files older than this many days. 0 disables the file sweep."},
 	"RetentionConfig.Interval":    {Help: "How often the sweeper runs (Go duration string, e.g. 1h). Default 1h."},
 
@@ -389,7 +389,7 @@ var fieldMetas = map[string]FieldMeta{
 	"ConvChannelConfig.Priority":            {Help: "Scan priority 1–10 (higher wins). 0 = unset."},
 	"ConvChannelConfig.TalkgroupID":         {Label: "Talkgroup ID", Help: "Fixed talkgroup ID this channel surfaces under (API, call log, Rdio Scanner / OpenMHz / Broadcastify uploads). 0 = positional default (0x80000000 | list index), which shifts when the channel list is edited — pin an ID to keep talkgroup_file roster rows durable."},
 	"ConvChannelConfig.Tone":                {Help: "Optional CTCSS/DCS sub-audible squelch gate."},
-	"ConvChannelConfig.Decoders":            {Help: "Data decoders to run on this channel while the scanner is on it: mdc1200 and/or fleetsync. Bursts land in the MDC1200 / FleetSync logs and panels with this channel's frequency — no dedicated SDR needed. Empty = none."},
+	"ConvChannelConfig.Decoders":            {Help: "Data decoders to run on this channel while the scanner is on it: mdc1200 and/or fleetsync on an FM channel; acars (VHF air-band aircraft data link) on an AM channel. Decoded messages land in the MDC1200 / FleetSync / ACARS logs and panels with this channel's frequency — no dedicated SDR needed. Empty = none."},
 	"ConvToneConfig.Mode":                   {Help: "Sub-audible gate: none, ctcss, or dcs.", Options: opts("", "none", "none", "none", "ctcss", "ctcss", "dcs", "dcs")},
 	"ConvToneConfig.CTCSSHz":                {Label: "CTCSS (Hz)", Help: "Target CTCSS frequency (50–300 Hz). Required when mode is ctcss."},
 	"ConvToneConfig.DCSCode":                {Label: "DCS code", Help: "3-digit octal DCS code. Required when mode is dcs."},

@@ -64,6 +64,7 @@ receiver with its own log and console panel:
 - **[DSC](dsc.html)** — marine digital selective calling, including distress.
 - **[MDC1200](mdc1200.html)** — Motorola in-band signaling (PTT IDs, emergency).
 - **[FleetSync](fleetsync.html)** — Kenwood in-band signalling (fleet / unit ANI).
+- **[ACARS](acars.html)** — the VHF air-band aircraft data link, off a scanner AM channel.
 - **[M17](m17.html)** — the open digital-voice link layer.
 
 Which of these are on by default, and how to enable the rest, lives in

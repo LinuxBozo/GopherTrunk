@@ -114,7 +114,7 @@ Passthrough kinds include: `sdr.attached`, `sdr.detached`, `cc.locked`,
 `talker.alias`, `location`, `site.update`, `patch`, `audio.state`,
 `channel.power`, `bookmark.created`, `bookmark.updated`, `bookmark.deleted`,
 `pager.message`, `aprs.packet`, `ais.message`, `dsc.message`, `adsb.aircraft`,
-`mdc1200.message`, `fleetsync.message`, `m17.linksetup`, `lora.frame`,
+`mdc1200.message`, `fleetsync.message`, `acars.message`, `m17.linksetup`, `lora.frame`,
 `cchunt.progress`,
 `cchunt.failed`, `hunt.progress`, `hunt.candidate`, `hunt.done`,
 `unit.request`, `dmr.grant.observed`, `dmr.bandplan.learned`.

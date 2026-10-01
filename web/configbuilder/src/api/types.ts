@@ -256,7 +256,8 @@ export interface ConvChannelConfig {
   Priority: number;
   TalkgroupID: number;
   Tone: ConvToneConfig;
-  // Data decoders run on the channel's dwell: "mdc1200" | "fleetsync" (#1220).
+  // Data decoders run on the channel's dwell: "mdc1200" | "fleetsync" (#1220),
+  // "acars" on an AM channel (#1231).
   Decoders: string[] | null;
 }
 

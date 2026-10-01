@@ -272,7 +272,7 @@ retention:
   call_log_days: 30   # 0 disables call-log row sweep
   log_days: 30        # 0 disables decoder-log sweep (pager / aprs /
                       #  vessel / dsc / aircraft / mdc1200 / fleetsync /
-                      #  m17 / location logs, aged by received_at)
+                      #  acars / m17 / location logs, aged by received_at)
   files_days: 14      # 0 disables filesystem sweep
   interval: "1h"      # how often the sweeper runs
 
@@ -783,7 +783,7 @@ sdr:
 # tagged protocol=pocsag or protocol=flex.
 #
 # NOTE: paging (and the other message decoders: aprs, ais, dsc,
-# mdc1200, fleetsync, m17) surface decoded messages only through the SQLite
+# mdc1200, fleetsync, acars, m17) surface decoded messages only through the SQLite
 # log. You must set a `storage:` section (see the storage example
 # above) — without it the decoder runs but /api/v1/pager/messages
 # returns 503 and the web panel stays empty.
@@ -1397,6 +1397,16 @@ scanner:
   #     # decoder that is mid-burst holds the channel until the burst ends.
   #     # Needs storage.path to persist the log.
   #     # decoders: [mdc1200, fleetsync]
+  #   # ACARS (#1231): the VHF air-band aircraft data link (2400 bit/s MSK on
+  #   # an AM carrier) decoded off an AM scan-list channel. Blocks land in
+  #   # the acars_log table, GET /api/v1/acars/messages and the /acars web
+  #   # panel, tagged with this channel's frequency. acars needs mode: am.
+  #   # A block is up to ~0.9 s long; the scanner holds the channel while
+  #   # one is being framed. Needs storage.path to persist the log.
+  #   - label: "ACARS primary"
+  #     frequency_hz: 131550000   # also 131.525, 130.025, 129.125, 131.125 …
+  #     mode: am
+  #     decoders: [acars]
 
 # audio routes decoded PCM to the host's speakers. Disabled by default;
 # WAV recording is unaffected and continues whether audio is on or off.
@@ -1688,9 +1698,9 @@ broadcast:
 #
 # Valid tab keys: dashboard, active, scanner, settings, systems,
 # talkgroups, rids, history, events, cc, tones, pagers, aprs, ais, dsc,
-# adsb, mdc1200, fleetsync, spectrum, constellation, bookmarks, metrics,
-# devices, import. (The feature tabs pagers/aprs/ais/dsc/adsb/mdc1200/
-# fleetsync are web-only, so hiding them is a no-op in the TUI.)
+# adsb, mdc1200, fleetsync, acars, spectrum, constellation, bookmarks,
+# metrics, devices, import. (The feature tabs pagers/aprs/ais/dsc/adsb/
+# mdc1200/fleetsync/acars are web-only, so hiding them is a no-op in the TUI.)
 # web:
 #   tabs:
 #     aprs: false

@@ -149,12 +149,15 @@ func preflight(cfg config.Config) ([]string, error) {
 		if len(cfg.DSC.Channels) > 0 {
 			needs = append(needs, "dsc")
 		}
-		convMDC, convFS := convChannelDecoders(cfg.Scanner.Conventional)
+		convMDC, convFS, convACARS := convChannelDecoders(cfg.Scanner.Conventional)
 		if len(cfg.MDC1200.Channels) > 0 || convMDC {
 			needs = append(needs, "mdc1200")
 		}
 		if len(cfg.FleetSync.Channels) > 0 || convFS {
 			needs = append(needs, "fleetsync")
+		}
+		if convACARS {
+			needs = append(needs, "acars")
 		}
 		if len(cfg.M17.Channels) > 0 {
 			needs = append(needs, "m17")
