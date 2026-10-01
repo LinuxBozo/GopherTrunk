@@ -518,8 +518,8 @@ export function ScannerSection() {
                   label="Data decoders"
                   value={formatCommaList(ch.Decoders)}
                   onChange={(x) => setCh({ ...ch, Decoders: parseCommaList(x) })}
-                  placeholder="mdc1200, fleetsync"
-                  help="MDC1200 / FleetSync decoded on this channel while the scanner is on it (comma-separated). Empty = none."
+                  placeholder="mdc1200, fleetsync (FM) · acars (AM)"
+                  help="Data decoders run on this channel while the scanner is on it (comma-separated): mdc1200 / fleetsync on an FM channel, acars on an AM air-band channel. Empty = none."
                 />
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -633,7 +633,7 @@ export function AudioSection() {
 const KNOWN_TABS = [
   "dashboard", "active", "scanner", "settings", "hunt", "systems", "talkgroups",
   "rids", "history", "events", "cc", "tones", "pagers", "aprs", "ais", "dsc",
-  "adsb", "mdc1200", "fleetsync", "spectrum", "constellation", "symbols", "bookmarks",
+  "adsb", "mdc1200", "fleetsync", "acars", "spectrum", "constellation", "symbols", "bookmarks",
   "metrics", "devices", "import",
 ];
 

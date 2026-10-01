@@ -235,6 +235,14 @@ const (
 	// for the live FleetSync panel.
 	KindFleetSyncMessage Kind = "fleetsync.message"
 
+	// KindACARSMessage fires when the ACARS decoder completes one block
+	// off a VHF air-band AM channel (a scanner.conventional entry with
+	// `decoders: [acars]`, #1231). Payload is a storage.ACARSMessage
+	// carrying the aircraft registration, label, block id, flight /
+	// message number (downlinks), the text and the block-check flag.
+	// Surfaced over SSE / WS for the live ACARS panel.
+	KindACARSMessage Kind = "acars.message"
+
 	// KindM17LinkSetup fires when the M17 decoder reassembles a Link
 	// Setup Frame (via the stream-frame LICH path). Payload is a
 	// storage.M17LinkSetup carrying source / destination callsigns, the

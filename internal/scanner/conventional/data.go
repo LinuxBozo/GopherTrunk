@@ -48,12 +48,16 @@ const (
 	DecoderMDC1200 = "mdc1200"
 	// DecoderFleetSync names the Kenwood FleetSync FFSK decoder.
 	DecoderFleetSync = "fleetsync"
+	// DecoderACARS names the VHF air-band ACARS decoder (#1231). It runs
+	// its own AM envelope detector on the channel IQ, so it needs an AM
+	// channel (mode: am) — config validation enforces that.
+	DecoderACARS = "acars"
 )
 
 // ValidDecoder reports whether name is a data decoder the scanner knows.
 func ValidDecoder(name string) bool {
 	switch name {
-	case DecoderMDC1200, DecoderFleetSync:
+	case DecoderMDC1200, DecoderFleetSync, DecoderACARS:
 		return true
 	}
 	return false
@@ -103,7 +107,20 @@ const (
 	// locks right at the deadline, while a false sync lock on noise can
 	// only delay the scan by this much.
 	dataScanHoldMax = 500 * time.Millisecond
+	// acarsScanHoldMax is the hold for a channel running the ACARS
+	// decoder: its longest block — 16 pre-key characters, 5 of sync and up
+	// to 234 of body + 3 trailing, 8 bits each at 2400 bit/s — is ~0.86 s,
+	// longer than any FFSK burst.
+	acarsScanHoldMax = time.Second
 )
+
+// holdMaxFor is the scan-window hold for a decoder kind.
+func holdMaxFor(kind string) time.Duration {
+	if kind == DecoderACARS {
+		return acarsScanHoldMax
+	}
+	return dataScanHoldMax
+}
 
 // pickDataDecimation returns the integer decimation factor m for an input
 // rate sampleHz: the largest m that divides the input rate exactly, keeps
@@ -184,8 +201,9 @@ func (f *dataFrontEnd) reset() {
 // channelData is one channel's data front end plus its decoders. nil for a
 // channel with no decoders.
 type channelData struct {
-	fe   *dataFrontEnd
-	decs []DataDecoder
+	fe      *dataFrontEnd
+	decs    []DataDecoder
+	holdMax time.Duration // longest scan-window hold any of decs needs
 }
 
 func (c *channelData) feed(iq []complex64) {
@@ -216,7 +234,7 @@ func validateDecoders(names []string) error {
 	seen := map[string]bool{}
 	for _, n := range names {
 		if !ValidDecoder(n) {
-			return fmt.Errorf("decoders: %q must be %s|%s", n, DecoderMDC1200, DecoderFleetSync)
+			return fmt.Errorf("decoders: %q must be %s|%s|%s", n, DecoderMDC1200, DecoderFleetSync, DecoderACARS)
 		}
 		if seen[n] {
 			return fmt.Errorf("decoders: %q listed twice", n)
@@ -254,6 +272,9 @@ func buildChannelData(ch Channel, sampleHz float64, factory DataDecoderFactory, 
 			continue
 		}
 		c.decs = append(c.decs, d)
+		if h := holdMaxFor(kind); h > c.holdMax {
+			c.holdMax = h
+		}
 	}
 	if len(c.decs) == 0 {
 		return nil

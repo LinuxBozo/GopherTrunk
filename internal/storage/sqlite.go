@@ -391,6 +391,31 @@ CREATE TABLE IF NOT EXISTS fleetsync_log (
 
 CREATE INDEX IF NOT EXISTS idx_fleetsync_log_time ON fleetsync_log(received_at);
 CREATE INDEX IF NOT EXISTS idx_fleetsync_log_unit ON fleetsync_log(fleet, unit, received_at);
+
+-- ACARS blocks (VHF air-band data link, #1231) persisted from the decoder
+-- pipeline. One row per decoded block.
+CREATE TABLE IF NOT EXISTS acars_log (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    received_at  INTEGER NOT NULL,             -- unix nanoseconds
+    mode         TEXT    NOT NULL DEFAULT '',  -- mode character ('2', 'E', …)
+    address      TEXT    NOT NULL DEFAULT '',  -- aircraft registration
+    ack          TEXT    NOT NULL DEFAULT '',  -- technical ack ('!' = NAK)
+    label        TEXT    NOT NULL DEFAULT '',  -- two-character label
+    block_id     TEXT    NOT NULL DEFAULT '',  -- '0'..'9' downlink, letters uplink
+    downlink     INTEGER NOT NULL DEFAULT 0,   -- 1 for air-to-ground
+    msg_no       TEXT    NOT NULL DEFAULT '',  -- downlink message number
+    flight_id    TEXT    NOT NULL DEFAULT '',  -- downlink flight identifier
+    text         TEXT    NOT NULL DEFAULT '',  -- message body
+    more         INTEGER NOT NULL DEFAULT 0,   -- 1 when an ETB said more blocks follow
+    crc_ok       INTEGER NOT NULL DEFAULT 0,   -- 1 when the block check validated
+    corrected    INTEGER NOT NULL DEFAULT 0,   -- bits repaired before it validated
+    raw_hex      TEXT    NOT NULL DEFAULT '',  -- received block, mode through BCS
+    serial       TEXT    NOT NULL DEFAULT '',  -- SDR serial of the receiver that decoded it
+    frequency_hz INTEGER NOT NULL DEFAULT 0    -- channel frequency of that receiver
+);
+
+CREATE INDEX IF NOT EXISTS idx_acars_log_time ON acars_log(received_at);
+CREATE INDEX IF NOT EXISTS idx_acars_log_addr ON acars_log(address, received_at);
 `
 
 func (d *DB) migrate() error {

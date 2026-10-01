@@ -84,7 +84,8 @@ type Channel struct {
 	// tone gating and the scanner behaves identically to its
 	// pre-tone version. Detectors: ctcss.go, dcs.go.
 	Tone ToneConfig
-	// Decoders names the data decoders (DecoderMDC1200, DecoderFleetSync)
+	// Decoders names the data decoders (DecoderMDC1200, DecoderFleetSync,
+	// DecoderACARS)
 	// to run on this channel's IQ while the scanner is on it, built through
 	// Options.DataDecoders. Empty runs none. See data.go (issue #1220).
 	Decoders []string
@@ -635,7 +636,8 @@ func (s *Scanner) Run(ctx context.Context) error {
 //
 // A channel with data decoders feeds them every chunk that clears the
 // power squelch, and a decoder part-way through a burst when the window
-// expires extends it (in dataScanHoldStep steps, at most dataScanHoldMax)
+// expires extends it (in dataScanHoldStep steps, at most the channel's
+// holdMax: dataScanHoldMax, or acarsScanHoldMax with the ACARS decoder)
 // so the scanner does not hop away mid-frame (issue #1220).
 func (s *Scanner) scanWindow(ctx context.Context, idx int, ch Channel, stream <-chan []complex64) bool {
 	deadline := time.NewTimer(s.opts.MinDwellPerChannel)
@@ -649,7 +651,7 @@ func (s *Scanner) scanWindow(ctx context.Context, idx int, ch Channel, stream <-
 		case <-ctx.Done():
 			return false
 		case <-deadline.C:
-			if cd != nil && held < dataScanHoldMax && cd.busy() {
+			if cd != nil && held < cd.holdMax && cd.busy() {
 				held += dataScanHoldStep
 				deadline.Reset(dataScanHoldStep)
 				continue

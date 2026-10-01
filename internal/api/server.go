@@ -418,6 +418,8 @@ type Server struct {
 	// Implemented by the daemon over the SQLite-backed
 	// storage.FleetSyncLog.
 	fleetsync FleetSyncProvider
+	// acars backs GET /api/v1/acars/messages (#1231); nil without storage.
+	acars ACARSProvider
 
 	// siglab is the optional offline signal-analysis subsystem backing
 	// the /api/v1/siglab/* routes (capture upload, engine run + SSE,
@@ -960,6 +962,9 @@ type ServerOptions struct {
 	// Kenwood FleetSync ANI bursts. Wired by the daemon over the
 	// SQLite-backed storage.FleetSyncLog.
 	FleetSync FleetSyncProvider
+	// ACARS, when non-nil, backs the GET /api/v1/acars/messages route
+	// serving recent decoded ACARS blocks (#1231). nil ⇒ 503.
+	ACARS ACARSProvider
 	// CORS configures the cross-origin middleware. Off when
 	// AllowedOrigins is empty (the daemon emits no CORS headers).
 	// Set this when the browser-served SPA is loaded from an
@@ -1105,6 +1110,7 @@ func NewServer(opts ServerOptions) (*Server, error) {
 		adsb:           opts.ADSB,
 		mdc1200:        opts.MDC1200,
 		fleetsync:      opts.FleetSync,
+		acars:          opts.ACARS,
 	}, nil
 }
 
@@ -1504,6 +1510,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/v1/adsb/aircraft/current", s.handleADSBAircraftCurrent)
 	mux.HandleFunc("GET /api/v1/mdc1200/messages", s.handleMDC1200Messages)
 	mux.HandleFunc("GET /api/v1/fleetsync/messages", s.handleFleetSyncMessages)
+	mux.HandleFunc("GET /api/v1/acars/messages", s.handleACARSMessages)
 
 	// Embedded SPA at "/" — served only when the daemon was linked
 	// against a populated web/dist embed. SPA history routes

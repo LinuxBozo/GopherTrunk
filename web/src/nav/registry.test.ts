@@ -43,6 +43,7 @@ const ROUTED_PATHS = [
   "/adsb",
   "/mdc1200",
   "/fleetsync",
+  "/acars",
   "/lora",
   "/metrics",
   "/devices",

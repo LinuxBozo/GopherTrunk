@@ -487,6 +487,7 @@ type Daemon struct {
 	aircraftLog  *storage.AircraftLog
 	mdc1200Log   *storage.MDC1200Log
 	fleetsyncLog *storage.FleetSyncLog
+	acarsLog     *storage.ACARSLog
 	messageLog   *gtlog.MessageLog
 	powerLog     *gtlog.PowerLog
 	eventLog     *gtlog.EventLog
@@ -2995,6 +2996,9 @@ func (d *Daemon) buildAPIServer(cfg config.Config, version string, log *slog.Log
 		if d.fleetsyncLog != nil {
 			opts.FleetSync = fleetsyncProvider{log: d.fleetsyncLog}
 		}
+		if d.acarsLog != nil {
+			opts.ACARS = acarsProvider{log: d.acarsLog}
+		}
 		if d.db != nil {
 			opts.History = api.HistoryFromStorage(d.db)
 		}
@@ -3268,6 +3272,13 @@ func (d *Daemon) buildStorage(cfg config.Config, log *slog.Logger) error {
 		}
 		d.fleetsyncLog = fsl
 
+		acl2, err := storage.NewACARSLog(db, d.bus, log)
+		if err != nil {
+			db.Close()
+			return fmt.Errorf("daemon: acars log: %w", err)
+		}
+		d.acarsLog = acl2
+
 		if cfg.Retention.CallLogDays > 0 || cfg.Retention.LogDays > 0 || cfg.Retention.FilesDays > 0 {
 			interval, err := retentionInterval(cfg.Retention.Interval)
 			if err != nil {
@@ -3394,6 +3405,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if d.fleetsyncLog != nil {
 		d.spawn(runCtx, "fleetsynclog", false, func(ctx context.Context) error {
 			return d.fleetsyncLog.Run(ctx)
+		})
+	}
+	if d.acarsLog != nil {
+		d.spawn(runCtx, "acarslog", false, func(ctx context.Context) error {
+			return d.acarsLog.Run(ctx)
 		})
 	}
 	if d.messageLog != nil {
@@ -4132,6 +4148,9 @@ func (d *Daemon) Close() {
 		}
 		if d.mdc1200Log != nil {
 			_ = d.mdc1200Log.Close()
+		}
+		if d.acarsLog != nil {
+			_ = d.acarsLog.Close()
 		}
 		if d.fleetsyncLog != nil {
 			_ = d.fleetsyncLog.Close()
@@ -6151,6 +6170,13 @@ type fleetsyncProvider struct{ log *storage.FleetSyncLog }
 
 func (f fleetsyncProvider) RecentFleetSyncMessages(limit int) ([]storage.FleetSyncMessage, error) {
 	return f.log.Recent(limit)
+}
+
+// acarsProvider adapts storage.ACARSLog into api.ACARSProvider (#1231).
+type acarsProvider struct{ log *storage.ACARSLog }
+
+func (a acarsProvider) RecentACARSMessages(limit int) ([]storage.ACARSMessage, error) {
+	return a.log.Recent(limit)
 }
 
 // aprsSpec captures the broker-side wiring info for one configured

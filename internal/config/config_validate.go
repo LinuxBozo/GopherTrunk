@@ -784,8 +784,15 @@ func validateConvChannel(i int, ch ConvChannelConfig) error {
 	for _, d := range ch.Decoders {
 		switch d {
 		case "mdc1200", "fleetsync":
+		case "acars":
+			// ACARS is MSK on an AM carrier: the decoder envelope-detects
+			// the channel itself, and an FM channel's dBFS squelch and FM
+			// voice chain are the wrong tools for an air-band data channel.
+			if ch.Mode != "am" {
+				return fmt.Errorf("scanner.conventional[%d].decoders: acars needs mode: am (ACARS is AM; got mode %q)", i, ch.Mode)
+			}
 		default:
-			return fmt.Errorf("scanner.conventional[%d].decoders: %q must be mdc1200|fleetsync", i, d)
+			return fmt.Errorf("scanner.conventional[%d].decoders: %q must be mdc1200|fleetsync|acars", i, d)
 		}
 		if seen[d] {
 			return fmt.Errorf("scanner.conventional[%d].decoders: %q listed twice", i, d)

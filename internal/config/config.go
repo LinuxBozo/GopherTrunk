@@ -188,6 +188,7 @@ var KnownUITabs = map[string]bool{
 	"adsb":          true,
 	"mdc1200":       true,
 	"fleetsync":     true,
+	"acars":         true,
 	"spectrum":      true,
 	"constellation": true,
 	"bookmarks":     true,
@@ -625,7 +626,8 @@ type ConvChannelConfig struct {
 	// Zero / "none" disables tone gating (default).
 	Tone ConvToneConfig `yaml:"tone"`
 	// Decoders names the data decoders to run on this channel's IQ while
-	// the scanner is on it: "mdc1200" and/or "fleetsync". Decoded bursts
+	// the scanner is on it: "mdc1200" and/or "fleetsync" on an FM channel,
+	// "acars" on an AM air-band channel (#1231). Decoded bursts
 	// land in the same log / REST endpoint / web panel as the
 	// mdc1200.channels / fleetsync.channels receivers, stamped with this
 	// channel's frequency — no dedicated SDR needed. A decoder that is
