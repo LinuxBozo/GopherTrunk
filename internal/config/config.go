@@ -1887,6 +1887,30 @@ type EncryptionKeyConfig struct {
 // and an optional 0x prefix tolerated (the same rule validation applies).
 func (k EncryptionKeyConfig) KeyBytes() ([]byte, error) { return decodeHexKey(k.Key) }
 
+// Validate checks one key on its own: a supported algorithm and a 1..32
+// byte hex key. Duplicate key IDs are a property of the whole list and are
+// checked by the caller (system validation, `replay -key`).
+func (k EncryptionKeyConfig) Validate() error {
+	switch strings.ToLower(strings.TrimSpace(k.Algorithm)) {
+	case "rc4", "arc4", "adp":
+		// supported: DMR Enhanced Privacy and P25 ADP, one RC4 family
+	case "":
+		return fmt.Errorf("algorithm is required (use \"rc4\" or \"adp\")")
+	case "aes", "des":
+		return fmt.Errorf("algorithm %q is not supported yet (only \"rc4\" / \"adp\")", k.Algorithm)
+	default:
+		return fmt.Errorf("unknown algorithm %q (use \"rc4\" or \"adp\")", k.Algorithm)
+	}
+	b, err := decodeHexKey(k.Key)
+	if err != nil {
+		return err
+	}
+	if len(b) > 32 {
+		return fmt.Errorf("key is %d bytes, must be 1..32", len(b))
+	}
+	return nil
+}
+
 // NormalizedAlgorithm is the canonical lower-case algorithm name the
 // decoders match on: "rc4" for every spelling of the RC4 family — "rc4" /
 // "arc4" (DMR Enhanced Privacy) and "adp" (P25 Advanced Digital Privacy,

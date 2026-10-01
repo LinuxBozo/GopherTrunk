@@ -1294,7 +1294,8 @@ func (e *Engine) ActiveCalls() []*ActiveCall {
 	out := e.pool.Active()
 	e.mu.Lock()
 	for _, ac := range e.synthetic {
-		out = append(out, ac)
+		cp := *ac // a snapshot, like pool.Active: synthetic calls mutate under e.mu
+		out = append(out, &cp)
 	}
 	e.mu.Unlock()
 	return out

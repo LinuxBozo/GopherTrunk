@@ -90,7 +90,7 @@ func TestPCMStreamWriterErrorIsSticky(t *testing.T) {
 func TestSetupReplayVoiceStreamOnly(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	var buf syncBuffer
-	rig, err := setupReplayVoice("", 48000, 100*time.Millisecond, newPCMStreamWriter(&buf), log)
+	rig, err := setupReplayVoice("", 48000, 100*time.Millisecond, newPCMStreamWriter(&buf), nil, log)
 	if err != nil {
 		t.Fatalf("setupReplayVoice with empty outDir (stream-only): %v", err)
 	}

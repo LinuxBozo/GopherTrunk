@@ -95,8 +95,8 @@ func TestP25ADPReplay(t *testing.T) {
 			dev, _ = strconv.ParseFloat(v, 64)
 		}
 		inRate = float64(rate)
-		iq = remodulateDiscriminatorAudio(samples, inRate, dev)
-		audioSanity = discriminatorAudioSanity(samples, inRate, "C4FM")
+		iq = remodulateDiscriminatorAudio(int16ToDisc(samples), inRate, dev)
+		audioSanity = discriminatorAudioSanity(int16ToDisc(samples), inRate, "C4FM")
 		t.Logf("discriminator audio: %d samples at %d Hz, re-modulated at ±%.0f Hz full scale; %s", len(samples), rate, dev, audioSanity)
 	default:
 		raw, err := os.ReadFile(iqPath)

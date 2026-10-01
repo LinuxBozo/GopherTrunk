@@ -91,7 +91,7 @@ func TestReplayRecordVoiceEndToEnd(t *testing.T) {
 	// Also exercise the -audio-out live PCM tap (issue #314): decoded voice
 	// must stream continuously alongside the recordings.
 	var audioBuf syncBuffer
-	rig, err := setupReplayVoice(outDir, ddcRate, 3500*time.Millisecond, newPCMStreamWriter(&audioBuf), log)
+	rig, err := setupReplayVoice(outDir, ddcRate, 3500*time.Millisecond, newPCMStreamWriter(&audioBuf), nil, log)
 	if err != nil {
 		t.Fatal(err)
 	}

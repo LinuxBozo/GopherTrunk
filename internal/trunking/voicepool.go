@@ -327,13 +327,23 @@ func (p *VoicePool) Release(serial string) *ActiveCall {
 	return ac
 }
 
-// Active returns a snapshot of every currently-bound call.
+// Active returns a snapshot of every currently-bound call: COPIES, taken
+// under the pool lock. The pool keeps mutating its own entries under that
+// lock (Touch moves LastHeardAt on every voice frame, a handoff replaces
+// Grant, UpdateSignal/UpdateDemod stamp the quality fields), and handing out
+// the live pointers let the engine watchdog and the API read those fields
+// with no lock at all — a data race the race detector reports as soon as a
+// voice chain touches its call while the watchdog runs (found by the #1187
+// replay end-to-end test). Callers only read the snapshot and act on a call
+// through its device serial (endCall, Touch, Backfill…), so a copy serves
+// every one of them.
 func (p *VoicePool) Active() []*ActiveCall {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	out := make([]*ActiveCall, 0, len(p.active))
 	for _, ac := range p.active {
-		out = append(out, ac)
+		cp := *ac
+		out = append(out, &cp)
 	}
 	return out
 }

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"math/cmplx"
 	"os"
 	"strconv"
 	"strings"
@@ -110,8 +109,8 @@ func TestDMREnhancedPrivacyReplay(t *testing.T) {
 			dev, _ = strconv.ParseFloat(v, 64)
 		}
 		inRate = float64(rate)
-		iq = remodulateDiscriminatorAudio(samples, inRate, dev)
-		audioSanity = discriminatorAudioSanity(samples, inRate, "4FSK")
+		iq = remodulateDiscriminatorAudio(int16ToDisc(samples), inRate, dev)
+		audioSanity = discriminatorAudioSanity(int16ToDisc(samples), inRate, "4FSK")
 		t.Logf("discriminator audio: %d samples at %d Hz, re-modulated at ±%.0f Hz full scale; %s", len(samples), rate, dev, audioSanity)
 	default:
 		raw, err := os.ReadFile(iqPath)
@@ -490,66 +489,12 @@ func continuityLabel(c float64) string {
 	return "ciphertext-like"
 }
 
-// remodulateDiscriminatorAudio turns a discriminator-audio recording (the
-// FM demodulator's output, as DSD-FME consumes) back into unit-amplitude IQ
-// by treating each sample as an instantaneous frequency of ±dev Hz at full
-// scale and integrating the phase, so the receiver's own discriminator
-// recovers the same waveform.
-func remodulateDiscriminatorAudio(samples []int16, rate, dev float64) []complex64 {
-	iq := make([]complex64, len(samples))
-	var phase float64
-	for i, s := range samples {
-		f := float64(s) / 32768 * dev
-		phase += 2 * math.Pi * f / rate
-		if phase > math.Pi {
-			phase -= 2 * math.Pi
-		} else if phase < -math.Pi {
-			phase += 2 * math.Pi
-		}
-		iq[i] = complex64(cmplx.Rect(1, phase))
+// int16ToDisc scales 16-bit discriminator samples to the [-1, 1] floats the
+// production remodulation (replay_disc.go) takes.
+func int16ToDisc(s []int16) []float32 {
+	out := make([]float32, len(s))
+	for i, v := range s {
+		out[i] = float32(v) / 32768
 	}
-	return iq
-}
-
-// discriminatorAudioSanity characterises a discriminator-audio recording
-// before the receiver is blamed for not decoding it. A demodulated 4800-baud
-// 4FSK / C4FM signal keeps ~all of its energy below 3 kHz (RRC-shaped at
-// 4800 baud it is flat to ~2 kHz and gone by ~2.9 kHz), so an "audio" file
-// whose energy sits mostly ABOVE 3 kHz is not a discriminator tap of that
-// signal at all — the #1187 reporter's DMR files were 96 kHz recordings of
-// white-noise bursts gated at the TDMA slot cadence with a 15.5 kHz codec
-// cliff (decoded/garbled audio re-recorded, not the air signal), and every
-// receiver decodes nothing from those. The fraction is measured through a
-// 2nd-order Butterworth low-pass at 3 kHz over the whole file (the gaps
-// are quiet, so the bursts dominate either way).
-func discriminatorAudioSanity(samples []int16, rate float64, modulation string) string {
-	if len(samples) < 1024 || rate <= 6000 {
-		return ""
-	}
-	// Bilinear-transformed 2nd-order Butterworth low-pass, corner 3 kHz.
-	k := math.Tan(math.Pi * 3000 / rate)
-	norm := 1 / (1 + math.Sqrt2*k + k*k)
-	b0 := k * k * norm
-	b1 := 2 * b0
-	b2 := b0
-	a1 := 2 * (k*k - 1) * norm
-	a2 := (1 - math.Sqrt2*k + k*k) * norm
-	var x1, x2, y1, y2, eLow, eAll float64
-	for _, s := range samples {
-		x := float64(s) / 32768
-		y := b0*x + b1*x1 + b2*x2 - a1*y1 - a2*y2
-		x2, x1 = x1, x
-		y2, y1 = y1, y
-		eLow += y * y
-		eAll += x * x
-	}
-	if eAll == 0 {
-		return "audio is digital silence"
-	}
-	frac := eLow / eAll
-	verdict := "consistent with a discriminator tap"
-	if frac < 0.6 {
-		verdict = fmt.Sprintf("NOT a demodulable %s discriminator tap — a 4800-baud %s signal keeps ~90%% of its energy below 3 kHz; this looks like decoded/garbled audio or a wideband recording, and no receiver can recover bursts from it (record IQ with `gophertrunk capture`, or the receiver's raw unsquelched discriminator output instead)", modulation, modulation)
-	}
-	return fmt.Sprintf("energy below 3 kHz: %.0f%% (%s)", 100*frac, verdict)
+	return out
 }

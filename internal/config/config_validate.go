@@ -552,27 +552,13 @@ func validateSystem(i int, s SystemConfig) error {
 	}
 	seenKeyIDs := make(map[uint16]struct{}, len(s.EncryptionKeys))
 	for k, ek := range s.EncryptionKeys {
-		switch strings.ToLower(strings.TrimSpace(ek.Algorithm)) {
-		case "rc4", "arc4", "adp":
-			// supported: DMR Enhanced Privacy and P25 ADP, one RC4 family
-		case "":
-			return fmt.Errorf("trunking.systems[%d].encryption_keys[%d]: algorithm is required (use \"rc4\" or \"adp\")", i, k)
-		case "aes", "des":
-			return fmt.Errorf("trunking.systems[%d].encryption_keys[%d]: algorithm %q is not supported yet (only \"rc4\" / \"adp\")", i, k, ek.Algorithm)
-		default:
-			return fmt.Errorf("trunking.systems[%d].encryption_keys[%d]: unknown algorithm %q (use \"rc4\" or \"adp\")", i, k, ek.Algorithm)
+		if err := ek.Validate(); err != nil {
+			return fmt.Errorf("trunking.systems[%d].encryption_keys[%d]: %w", i, k, err)
 		}
 		if _, dup := seenKeyIDs[ek.KeyID]; dup {
 			return fmt.Errorf("trunking.systems[%d].encryption_keys[%d]: duplicate key_id %d", i, k, ek.KeyID)
 		}
 		seenKeyIDs[ek.KeyID] = struct{}{}
-		b, err := decodeHexKey(ek.Key)
-		if err != nil {
-			return fmt.Errorf("trunking.systems[%d].encryption_keys[%d]: %w", i, k, err)
-		}
-		if len(b) > 32 {
-			return fmt.Errorf("trunking.systems[%d].encryption_keys[%d]: key is %d bytes, must be 1..32", i, k, len(b))
-		}
 	}
 	type rfssSite struct{ rfss, site uint8 }
 	seenSites := make(map[rfssSite]int, len(s.Sites))
