@@ -259,6 +259,23 @@ Silicon and Intel. Full per-OS recipes at
 - **Outbound call streaming** — Broadcastify Calls, RdioScanner,
   OpenMHz, live Icecast / ShoutCast with pre-encoded silence keep-alive.
   Pure-Go MP3 encoder. See `internal/broadcast`.
+- **Alerts** — rule-driven notifications (talkgroup key-up, emergency,
+  encrypted call, tone-out match, control channel lost, radio inhibit /
+  deny, transcript keywords …) to Discord, Slack, ntfy, Pushover,
+  Telegram, Gotify, a webhook, a local command or an MQTT broker (with an
+  optional full event mirror). See [docs/alerts.md](docs/alerts.md).
+- **Transcription** — finished recordings posted to any
+  OpenAI-compatible Whisper server (OpenAI, whisper.cpp, faster-whisper,
+  LocalAI); transcripts on the call, searchable, exportable, alertable.
+  See [docs/transcription.md](docs/transcription.md).
+- **Known-key decryption** — P25 ADP (RC4), DES-OFB, Triple-DES and
+  AES-128/256, and DMR Enhanced Privacy (RC4), decrypted in-process from
+  operator-supplied keys; `recordings.mute_encrypted` silences what no key
+  covers. No key recovery. See [docs/dmr-encryption.md](docs/dmr-encryption.md).
+- **Scanner controls** — talkgroup hold, timed avoid, scan lists,
+  priority preemption, lockout, CTCSS / DCS gating, control-channel hunt
+  hold / retune, conventional dwell / lockout — from the web console, the
+  TUI and the REST API.
 - **Baseband recording + offline replay** — Two-channel 16-bit WAV
   capture and a replay driver that mounts captures back into the
   SDR pool as virtual tuners. Looping replay simulates a
@@ -429,7 +446,10 @@ Operator-facing docs live at **[gophertrunk.org](https://gophertrunk.org)**
 - **Reference** — [Architecture](docs/architecture.md) ·
   [Vocoders](docs/vocoders.md) ·
   [Voice calibration](docs/voice-calibration.md) ·
-  [DMR encryption](docs/dmr-encryption.md) ·
+  [DMR & P25 encryption](docs/dmr-encryption.md) ·
+  [Alerts](docs/alerts.md) ·
+  [Transcription](docs/transcription.md) ·
+  [Competitive feature assessment](docs/competitive-feature-assessment.md) ·
   [Opt-in features](docs/opt-in-features.md) ·
   [Status](docs/status.md) ·
   [Roadmap](docs/roadmap.md) ·

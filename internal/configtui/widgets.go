@@ -57,6 +57,11 @@ func displayValue(fv reflect.Value, r formRow) string {
 			return "(none)"
 		}
 		return strings.Join(stringSlice(fv), ", ")
+	case kindNumberList:
+		if fv.Len() == 0 {
+			return "(none)"
+		}
+		return strings.Join(numberSlice(fv), ", ")
 	case kindFreqList:
 		n := fv.Len()
 		if n == 0 {
@@ -96,6 +101,8 @@ func editText(fv reflect.Value, r formRow) string {
 		return strings.Join(parts, ", ")
 	case kindStringList:
 		return strings.Join(stringSlice(fv), ", ")
+	case kindNumberList:
+		return strings.Join(numberSlice(fv), ", ")
 	case kindNumber:
 		return scalarString(fv)
 	case kindNumberPtr:
@@ -134,6 +141,36 @@ func commitText(fv reflect.Value, r formRow, text string) error {
 			out.Index(i).SetString(p)
 		}
 		if len(parts) == 0 {
+			fv.Set(reflect.Zero(fv.Type())) // nil so YAML omits empty list
+		} else {
+			fv.Set(out)
+		}
+	case kindNumberList:
+		var vals []string
+		for _, p := range strings.FieldsFunc(text, func(r rune) bool { return r == ',' || r == ' ' || r == ';' }) {
+			if t := strings.TrimSpace(p); t != "" {
+				vals = append(vals, t)
+			}
+		}
+		out := reflect.MakeSlice(fv.Type(), len(vals), len(vals))
+		el := fv.Type().Elem()
+		for i, v := range vals {
+			switch el.Kind() {
+			case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+				n, err := strconv.ParseInt(v, 10, 64)
+				if err != nil {
+					return fmt.Errorf("%q is not a whole number", v)
+				}
+				out.Index(i).SetInt(n)
+			default:
+				n, err := strconv.ParseUint(v, 10, 64)
+				if err != nil {
+					return fmt.Errorf("%q is not a non-negative whole number", v)
+				}
+				out.Index(i).SetUint(n)
+			}
+		}
+		if len(vals) == 0 {
 			fv.Set(reflect.Zero(fv.Type())) // nil so YAML omits empty list
 		} else {
 			fv.Set(out)
@@ -254,4 +291,13 @@ func nonDefaultMapCount(fv reflect.Value) int {
 		return 0
 	}
 	return fv.Len()
+}
+
+// numberSlice renders an integer slice's elements as decimal strings.
+func numberSlice(fv reflect.Value) []string {
+	out := make([]string, fv.Len())
+	for i := range out {
+		out[i] = scalarString(fv.Index(i))
+	}
+	return out
 }
