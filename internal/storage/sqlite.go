@@ -179,6 +179,16 @@ CREATE TABLE IF NOT EXISTS labels (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_labels_key  ON labels(kind, system, target_id);
 CREATE INDEX        IF NOT EXISTS idx_labels_kind ON labels(kind, target_id);
 
+-- Conventional scan-list lockouts the operator applied at runtime, so a
+-- restart does not forget them (a hardware scanner's lockout memory).
+-- Keyed by frequency, not list index, so re-ordering the scan list in the
+-- config cannot lock out the wrong channel.
+CREATE TABLE IF NOT EXISTS conv_lockouts (
+    frequency_hz INTEGER PRIMARY KEY,
+    label        TEXT    NOT NULL DEFAULT '',
+    locked_at    INTEGER NOT NULL              -- unix nanoseconds
+);
+
 -- POCSAG pager messages persisted from the decoder pipeline. Each
 -- row is one fully-reassembled page (address codeword + N message
 -- codewords). The function field is the 2-bit code from the

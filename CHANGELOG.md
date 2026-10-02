@@ -34,7 +34,17 @@ for tagged releases.
 - **Talkgroup hold and timed avoid.** `POST/DELETE /api/v1/scanner/hold` pins following to
   one talkgroup; `POST/DELETE /api/v1/talkgroups/{id}/avoid` locks one out for a duration
   (default 30 min). Emergency grants still pass; a held talkgroup bypasses list mode.
-  Shown / controlled on the Scanner and Talkgroups panels.
+  Shown / controlled on the Scanner and Talkgroups web panels and from the TUI Talkgroups
+  panel (`h` hold / release, `a` avoid 30 min / clear).
+- **Conventional scanner lockouts persist across restarts** (keyed by frequency in the
+  `conv_lockouts` table, so re-ordering the scan list cannot lock out the wrong channel)
+  whenever `storage.path` is set; without storage they stay runtime-only as before.
+- **Conventional priority scan.** `scanner.priority_interleave: N` revisits the next
+  channel carrying a `priority` after every N ordinary channels, so priority channels are
+  sampled several times per lap the way a hardware scanner's priority check does.
+- **Alerts & transcription status card** on the web Dashboard, with a per-channel Test
+  button (`POST /api/v1/alerts/test/{channel}`); alert messages resolve `{{source_alias}}`
+  from the RID catalogue (template field `.SourceAlpha` / `.SourceLabel`).
 - **P25 unit signalling decoded into events:** `unit.status`, `unit.message`, `call.alert`,
   `unit.ack`, `unit.queued`, `unit.deny` (with the TIA reason tables), `unit.function`
   (radio check / inhibit / uninhibit / detach + acks, regroup) and `unit.monitor`, from

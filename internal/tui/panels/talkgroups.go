@@ -66,10 +66,16 @@ var (
 	tgScanKey    = key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "toggle scan"))
 	tgPriUpKey   = key.NewBinding(key.WithKeys("+", "="), key.WithHelp("+", "priority up"))
 	tgPriDownKey = key.NewBinding(key.WithKeys("-", "_"), key.WithHelp("-", "priority down"))
+	tgHoldKey    = key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "hold/release"))
+	tgAvoidKey   = key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "avoid 30m/unavoid"))
 )
 
+// tgAvoidMinutes is the timed-lockout length the `a` key applies — the
+// same 30 minutes the web console's button and the daemon default use.
+const tgAvoidMinutes = 30
+
 func (TalkgroupsPanel) Keys() []key.Binding {
-	return []key.Binding{tgFilterKey, tgSortKey, tgLockoutKey, tgScanKey, tgPriUpKey, tgPriDownKey}
+	return []key.Binding{tgFilterKey, tgSortKey, tgLockoutKey, tgScanKey, tgPriUpKey, tgPriDownKey, tgHoldKey, tgAvoidKey}
 }
 
 // selectedTalkgroup returns the currently-highlighted row's
@@ -188,6 +194,40 @@ func (p *TalkgroupsPanel) Update(msg tea.Msg, s *state.SharedState) (Panel, tea.
 				},
 			}
 			return p, Emit(req)
+		case key.Matches(m, tgHoldKey):
+			tg, ok := p.selectedTalkgroup(s.Talkgroups)
+			if !ok {
+				return p, nil
+			}
+			// Toggle: pressing hold on the held talkgroup releases it.
+			if h := s.Scanner.Hold; h != nil && h.Talkgroup == tg.ID {
+				return p, Emit(state.WriteRequest{
+					Label: fmt.Sprintf("release hold on TG %d", tg.ID),
+					Kind:  state.WriteKindTalkgroupReleaseHold,
+				})
+			}
+			return p, Emit(state.WriteRequest{
+				Label:         fmt.Sprintf("hold TG %d", tg.ID),
+				Kind:          state.WriteKindTalkgroupHold,
+				TalkgroupHold: &state.TalkgroupHoldReq{ID: tg.ID},
+			})
+		case key.Matches(m, tgAvoidKey):
+			tg, ok := p.selectedTalkgroup(s.Talkgroups)
+			if !ok {
+				return p, nil
+			}
+			if talkgroupAvoided(s.Scanner.Avoids, tg.ID) {
+				return p, Emit(state.WriteRequest{
+					Label:          fmt.Sprintf("clear avoid on TG %d", tg.ID),
+					Kind:           state.WriteKindTalkgroupUnavoid,
+					TalkgroupAvoid: &state.TalkgroupAvoidReq{ID: tg.ID},
+				})
+			}
+			return p, Emit(state.WriteRequest{
+				Label:          fmt.Sprintf("avoid TG %d for %d min", tg.ID, tgAvoidMinutes),
+				Kind:           state.WriteKindTalkgroupAvoid,
+				TalkgroupAvoid: &state.TalkgroupAvoidReq{ID: tg.ID, Minutes: tgAvoidMinutes},
+			})
 		case key.Matches(m, tgPriUpKey), key.Matches(m, tgPriDownKey):
 			tg, ok := p.selectedTalkgroup(s.Talkgroups)
 			if !ok {
@@ -273,8 +313,36 @@ func (p *TalkgroupsPanel) View(width, height int, focused bool, s *state.SharedS
 	if height > 6 {
 		p.tbl.SetHeight(height - 4)
 	}
-	body := p.filter.View() + "  " + dashDim.Render(fmt.Sprintf("(sort: %s, %d rows)", p.sortBy.String(), len(p.tbl.Rows()))) + "\n" + p.tbl.View()
+	status := fmt.Sprintf("(sort: %s, %d rows%s)", p.sortBy.String(), len(p.tbl.Rows()), talkgroupScanStatus(s))
+	body := p.filter.View() + "  " + dashDim.Render(status) + "\n" + p.tbl.View()
 	return panelFrame("Talkgroups", width, height, focused, body)
+}
+
+// talkgroupScanStatus renders the live hold / timed-avoid state the `h`
+// and `a` keys toggle, so the operator can see what the scanner is doing
+// without leaving the panel. Empty when neither is active.
+func talkgroupScanStatus(s *state.SharedState) string {
+	if s == nil {
+		return ""
+	}
+	out := ""
+	if h := s.Scanner.Hold; h != nil {
+		out += fmt.Sprintf(", HOLD TG %d", h.Talkgroup)
+	}
+	if n := len(s.Scanner.Avoids); n > 0 {
+		out += fmt.Sprintf(", %d avoided", n)
+	}
+	return out
+}
+
+// talkgroupAvoided reports whether tg has a live timed lockout.
+func talkgroupAvoided(avoids []client.TalkgroupAvoidDTO, tg uint32) bool {
+	for _, a := range avoids {
+		if a.Talkgroup == tg {
+			return true
+		}
+	}
+	return false
 }
 
 func talkgroupsColumns(w int) []table.Column {

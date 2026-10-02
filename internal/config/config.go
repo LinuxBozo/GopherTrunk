@@ -576,6 +576,12 @@ type ScannerConfig struct {
 	// automatically; > 0 pins it (Hz, at most 35% of sdr.sample_rate);
 	// < 0 disables it (legacy on-channel tuning).
 	LOOffsetHz int `yaml:"lo_offset_hz"`
+	// PriorityInterleave enables priority scan on the conventional list:
+	// after this many ordinary channels the rotation visits the next
+	// channel with a `priority` set, so priority channels are sampled
+	// several times per lap (a hardware scanner's priority check). 0
+	// (default) = plain round robin.
+	PriorityInterleave int `yaml:"priority_interleave"`
 }
 
 // CCHuntConfig tunes the hunter's dwell + exponential backoff.

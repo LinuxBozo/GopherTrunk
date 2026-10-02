@@ -174,6 +174,25 @@ type WriteRequest struct {
 	Settings          *SettingsReq
 	Hunt              *HuntStartReq
 	HuntCapture       *HuntCaptureReq
+	TalkgroupHold     *TalkgroupHoldReq
+	TalkgroupAvoid    *TalkgroupAvoidReq
+}
+
+// TalkgroupHoldReq is the payload for WriteKindTalkgroupHold — follow only
+// this talkgroup until released (WriteKindTalkgroupReleaseHold ignores it).
+// System may be empty to match the talkgroup on any system.
+type TalkgroupHoldReq struct {
+	ID     uint32
+	System string
+}
+
+// TalkgroupAvoidReq is the payload for WriteKindTalkgroupAvoid (a timed
+// lockout; Minutes <= 0 takes the daemon's default of 30) and
+// WriteKindTalkgroupUnavoid (Minutes ignored).
+type TalkgroupAvoidReq struct {
+	ID      uint32
+	System  string
+	Minutes int
 }
 
 // HuntStartReq is the payload for WriteKindHuntStart — a live system-discovery
@@ -219,6 +238,10 @@ const (
 	WriteKindHuntStop
 	WriteKindHuntStart
 	WriteKindHuntCapture
+	WriteKindTalkgroupHold
+	WriteKindTalkgroupReleaseHold
+	WriteKindTalkgroupAvoid
+	WriteKindTalkgroupUnavoid
 )
 
 // ScannerManualTuneReq adds a temp VFO channel and forces dwell.

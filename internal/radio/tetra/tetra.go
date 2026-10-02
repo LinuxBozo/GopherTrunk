@@ -10,11 +10,13 @@
 // dedicated control channel grants voice / data calls onto traffic
 // channels. The non-trunked modes have no CC for the engine to hunt:
 // Repeater mode is out of scope, and DMO (Direct Mode Operation) is
-// being added incrementally — dmo.go implements the EN 300 396-2 (part
-// 2) burst framing (DSB / DNB detection + block slicing), reusing this
-// package's shared π/4-DQPSK demod, training sequences and scrambler.
-// The DMO channel decode, the EN 300 396-3 call-control protocol, and a
-// no-CC ingestion path for the scanner are not yet wired.
+// decoded end to end — dmo.go implements the EN 300 396-2 (part 2)
+// burst framing (DSB / DNB detection + block slicing), dmo_decode.go the
+// TCH/S channel decode, dmo_seed.go the per-transmission scramble-seed
+// solve, and dmo_stream.go the streaming adapter the `tetra-dmo`
+// scanner pipeline drives (on-air verified, #1003). The EN 300 396-3
+// call-control protocol is still not decoded: a DMO grant carries no
+// talkgroup (GroupID 0).
 //
 // What this package gives you:
 //
@@ -35,12 +37,13 @@
 //	             events.KindCCLocked / events.KindGrant on the bus
 //	             with `trunking.Grant.Protocol = "tetra"`.
 //
-// What's NOT yet wired (honest deferrals):
+// What's NOT wired, deliberately:
 //
 //   - End-to-end air-interface encryption (TEA1/2/3/4) — TETRA voice
 //     traffic on most operational networks is encrypted; the
-//     `Encrypted` flag on a grant just records what the CC said. Encrypted
-//     TCH/S fails the class-2 CRC and produces no decoded audio.
+//     `Encrypted` flag on a grant just records what the CC said, and
+//     encrypted TCH/S fails the class-2 CRC and produces no decoded
+//     audio. GopherTrunk performs no key recovery.
 //
 // Now wired (voice path): the composer's TETRA chain retunes to the granted
 // carrier, demodulates it, and — via traffic.go — recovers each Normal

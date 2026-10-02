@@ -31,16 +31,15 @@
 //	             or AHYC broadcast, and republishes GTC grants as
 //	             events.KindGrant with Protocol="mpt1327".
 //
-// What's NOT yet wired (honest deferrals):
+// Now wired (the deferrals this comment once listed):
 //
-//   - The 1200-baud FFSK demodulator that produces the bit stream
-//     this package consumes. MPT 1327 uses Audio FFSK with 1200 Hz
-//     and 1800 Hz mark/space — same family as classic POCSAG /
-//     ZVEI but a different bit rate.
-//   - BCH(63,38) decode of the 26-bit check field. The codeword
-//     parser here assumes the upstream caller has already corrected
-//     errors.
-//   - Slot-frame / sub-slot synchronisation. MPT 1327 codewords
-//     are scheduled in fixed sub-slots; multi-codeword decoding
-//     assumes the caller has aligned slot boundaries.
+//   - The 1200-baud FFSK demodulator (1200 / 1800 Hz mark/space) lives
+//     in the receiver sub-package and feeds ControlChannel.Process
+//     through the ccdecoder MPT 1327 pipeline.
+//   - BCH(63,38) decode of the 64-bit on-air codeword runs in process.go
+//     under SetBCHMode(BCHOn), the production default; BCHOff keeps the
+//     pre-corrected 48-bit path for callers that FEC upstream.
+//   - Codeword-sync (CCSC) alignment and slot framing are handled by the
+//     bit-stream adapter in process.go, which searches the stream for
+//     the system codeword and slices codewords on that boundary.
 package mpt1327

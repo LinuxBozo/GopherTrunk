@@ -269,6 +269,7 @@ export interface ScannerConfig {
   ManualTuneEnabled: boolean;
   ManualTuneDisabled: boolean;
   LOOffsetHz: number;
+  PriorityInterleave: number;
 }
 
 export interface AudioConfig {

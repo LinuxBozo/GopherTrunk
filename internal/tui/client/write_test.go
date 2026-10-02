@@ -265,3 +265,48 @@ func TestAuthHeader_TokenFileReloadedPerRequest(t *testing.T) {
 		t.Errorf("after rotation: Authorization = %q, want %q", gotAuth, "Bearer second-tok")
 	}
 }
+
+// TestTalkgroupHoldAvoid_Routes pins the four scan-control calls against
+// the daemon's routes and body shapes (handlers_scanner.go).
+func TestTalkgroupHoldAvoid_Routes(t *testing.T) {
+	type call struct{ Method, Path, Query, Body string }
+	var calls []call
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		calls = append(calls, call{r.Method, r.URL.Path, r.URL.RawQuery, string(body)})
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+	c := New(srv.URL, time.Second, false)
+	ctx := context.Background()
+	if err := c.TalkgroupHold(ctx, "metro", 101); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.ReleaseHold(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.TalkgroupAvoid(ctx, "", 101, 30); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.TalkgroupUnavoid(ctx, "metro east", 101); err != nil {
+		t.Fatal(err)
+	}
+	if len(calls) != 4 {
+		t.Fatalf("calls = %d, want 4", len(calls))
+	}
+	if calls[0].Method != "POST" || calls[0].Path != "/api/v1/scanner/hold" ||
+		!strings.Contains(calls[0].Body, `"talkgroup":101`) || !strings.Contains(calls[0].Body, `"system":"metro"`) {
+		t.Errorf("hold = %+v", calls[0])
+	}
+	if calls[1].Method != "DELETE" || calls[1].Path != "/api/v1/scanner/hold" {
+		t.Errorf("release = %+v", calls[1])
+	}
+	if calls[2].Method != "POST" || calls[2].Path != "/api/v1/talkgroups/101/avoid" ||
+		!strings.Contains(calls[2].Body, `"minutes":30`) {
+		t.Errorf("avoid = %+v", calls[2])
+	}
+	if calls[3].Method != "DELETE" || calls[3].Path != "/api/v1/talkgroups/101/avoid" ||
+		calls[3].Query != "system=metro+east" {
+		t.Errorf("unavoid = %+v", calls[3])
+	}
+}

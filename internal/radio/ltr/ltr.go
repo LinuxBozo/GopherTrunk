@@ -27,13 +27,18 @@
 //	             status from a given repeater (so the hunter can
 //	             confirm we're tuned to the right place).
 //
-// What's NOT yet wired (honest deferrals):
+// Now wired (the deferrals this comment once listed):
 //
-//   - The 300-baud sub-audible status-word demodulator. It rides
-//     under the voice on most LTR repeaters and uses its own
-//     baseband decoding; the Status parser here assumes the upstream
-//     caller has already delivered 41 clean bits.
-//   - Manchester encoding / decoding of the on-air bit stream.
-//   - Repeater-pair coordination (LTR-Net) where status-word
-//     references can hop between physical sites.
+//   - The 300-baud sub-audible status-word demodulator lives in the
+//     receiver sub-package (FM discriminator → sub-audible low-pass →
+//     Mueller-Müller clock recovery → slicer → BitSink) and feeds this
+//     package's ControlChannel.Process through the ccdecoder LTR
+//     pipeline.
+//   - Manchester decoding of the on-air bit stream is selectable per
+//     system (SetManchesterMode / `ltr_manchester_mode`); the pipeline
+//     defaults to the soft decoder.
+//
+// Still NOT wired: repeater-pair coordination (LTR-Net), where
+// status-word references hop between physical sites. Each repeater is
+// tracked on its own.
 package ltr

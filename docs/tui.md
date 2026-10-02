@@ -88,14 +88,14 @@ gophertrunk tui -server https://radio.example.com -insecure
 | Panel | Keys |
 | --- | --- |
 | Systems | `Enter` open detail card |
-| Talkgroups | `/` filter, `s` cycle sort, `l` toggle lockout, `S` toggle scan flag, `+` / `-` priority up/down, `Enter` open detail card, `Esc` exit filter input |
+| Talkgroups | `/` filter, `s` cycle sort, `l` toggle lockout, `S` toggle scan flag, `+` / `-` priority up/down, `h` hold / release hold, `a` avoid 30 min / clear avoid, `Enter` open detail card, `Esc` exit filter input |
 | Active calls | `e` end highlighted call (write) |
 | Call history | `r` reload |
 | Events | `/` filter, `p` pause auto-scroll, `c` clear filter |
 | Tone alerts | `R` reset detector for highlighted device (write) |
 | Metrics | `S` run retention sweep now (write) |
 | Devices | (table navigation only) |
-| Scanner | `j` / `k` move row, `h` hold/resume highlighted row, `r` force re-hunt (Systems section, confirms), `Enter` dwell on highlighted conv channel, `L` lockout / unlockout highlighted conv channel (skipped from scan rotation, runtime-only), `m` cycle scan_mode, `+` / `-` volume up/down (5% step), `M` mute toggle, `R` recording toggle, `f` manual tune (type frequency in MHz, Enter to listen, Esc to cancel) |
+| Scanner | `j` / `k` move row, `h` hold/resume highlighted row, `r` force re-hunt (Systems section, confirms), `Enter` dwell on highlighted conv channel, `L` lockout / unlockout highlighted conv channel (skipped from scan rotation; persisted by frequency when `storage.path` is set), `m` cycle scan_mode, `+` / `-` volume up/down (5% step), `M` mute toggle, `R` recording toggle, `f` manual tune (type frequency in MHz, Enter to listen, Esc to cancel) |
 | Settings | `[` / `]` / `h` / `l` / `←` / `→` cycle through inspector tabs |
 
 ## Mouse
@@ -233,6 +233,8 @@ or configure a token before exposing the listener. The legacy
 | Talkgroups | `l` | Toggle lockout on the highlighted talkgroup (`PATCH /api/v1/talkgroups/{id}`) | no — reversible |
 | Talkgroups | `S` | Toggle scan flag (relevant when `scan_mode: list`) | no |
 | Talkgroups | `+` / `-` | Bump priority up / down (clamped 0–99) | no |
+| Talkgroups | `h` | Hold the selected talkgroup (follow only it); pressing it on the held talkgroup releases the hold | no |
+| Talkgroups | `a` | Avoid the selected talkgroup for 30 minutes (timed lockout, clears itself); pressing it on an avoided talkgroup clears the avoid early | no |
 | Tone alerts | `R` | Reset tone-out match progress on the highlighted device (`POST /api/v1/devices/{serial}/tone-reset`) | yes |
 | Metrics | `S` | Run a retention sweep now (`POST /api/v1/retention/sweep`) | yes |
 | Scanner | `h` | Hold/resume highlighted system or conv channel (`POST /api/v1/scanner/hunt/{system}/{hold,resume}` or `/conventional/{hold,resume}`) | no |

@@ -722,6 +722,9 @@ func (c Config) validateScanner() []error {
 	default:
 		errs = append(errs, fmt.Errorf("scanner.scan_mode must be \"all\" or \"list\""))
 	}
+	if c.Scanner.PriorityInterleave < 0 {
+		errs = append(errs, fmt.Errorf("scanner.priority_interleave must be >= 0 (0 = off), got %d", c.Scanner.PriorityInterleave))
+	}
 	for i, ch := range c.Scanner.Conventional {
 		if err := validateConvChannel(i, ch); err != nil {
 			errs = append(errs, err)

@@ -177,6 +177,23 @@ type Options struct {
 	// decoders then WARNs at construction and scans without them.
 	DataDecoders DataDecoderFactory
 
+	// LockedOutHz seeds the runtime lockout set from a persisted store
+	// (storage.ConvLockoutStore): every channel whose frequency appears
+	// here starts locked out, exactly as if the operator had pressed
+	// lockout on it before the restart. Frequencies that match no channel
+	// are ignored.
+	LockedOutHz []uint32
+	// OnLockoutChange, when set, is called (off the scanner's lock, on the
+	// caller's goroutine) after every LockoutChannel / UnlockoutChannel
+	// with the affected channel so the daemon can persist the change.
+	OnLockoutChange func(ch Channel, locked bool)
+	// PriorityInterleave enables Uniden-style priority scan: after this
+	// many ordinary channels the rotation visits the next channel whose
+	// Priority is set (1 = highest), so priority channels are sampled
+	// several times per lap instead of once. 0 (default) disables it;
+	// with it set but no channel carrying a Priority the rotation is the
+	// plain round robin.
+	PriorityInterleave int
 	// StreamStallTimeout bounds how long a dwell tolerates receiving NO
 	// IQ chunks at all before it declares the stream stalled, ends the
 	// call (EndReasonError) and re-opens the stream. Hangtime cannot end
@@ -204,8 +221,8 @@ type ChannelStatus struct {
 	Mode        string `json:"mode"`
 	Active      bool   `json:"active"`
 	// LockedOut reports whether the channel is excluded from the
-	// scan cycle by operator action. Runtime-only — the field is
-	// not persisted across daemon restarts.
+	// scan cycle by operator action. Persisted by frequency when the
+	// daemon has storage configured, so it survives a restart.
 	LockedOut   bool      `json:"locked_out,omitempty"`
 	LastBreakAt time.Time `json:"last_break_at,omitempty"`
 	// Decoders lists the data decoders configured on the channel
@@ -258,10 +275,14 @@ type Scanner struct {
 	tempChannels map[int]bool
 	// lockedOut tracks indices the operator has skipped at
 	// runtime. The scan loop omits these from pickNextChannel
-	// rotation. Cleared by UnlockoutChannel; persists across
-	// scanner state changes (hold / resume) but not across daemon
-	// restarts.
+	// rotation. Cleared by UnlockoutChannel; seeded from
+	// Options.LockedOutHz and reported through Options.OnLockoutChange,
+	// which is how the daemon persists it across restarts.
 	lockedOut map[int]bool
+	// priCursor walks the priority channels for PriorityInterleave;
+	// sincePriority counts ordinary picks since the last priority visit.
+	priCursor     int
+	sincePriority int
 	// dcsPolarityWarned records the DCS detectors whose opposite-
 	// polarity WARN has fired, so a misconfigured channel warns once
 	// instead of on every scan pass. Scan-goroutine only.
@@ -410,6 +431,21 @@ func New(opts Options) (*Scanner, error) {
 		data[i] = buildChannelData(ch, opts.SampleRateHz, opts.DataDecoders, opts.Log)
 		amMeters[i] = buildAMMeter(ch, opts.SampleRateHz, opts.Log)
 	}
+	// Restore persisted lockouts by frequency — the operator's lockout
+	// memory, applied before the first pick so a locked channel is never
+	// dwelt on even once after a restart.
+	lockedOut := make(map[int]bool)
+	if len(opts.LockedOutHz) > 0 {
+		seed := make(map[uint32]bool, len(opts.LockedOutHz))
+		for _, hz := range opts.LockedOutHz {
+			seed[hz] = true
+		}
+		for i, ch := range channels {
+			if seed[ch.FrequencyHz] {
+				lockedOut[i] = true
+			}
+		}
+	}
 	return &Scanner{
 		opts:             opts,
 		log:              opts.Log,
@@ -422,7 +458,7 @@ func New(opts Options) (*Scanner, error) {
 		forcedDwellIndex: -1,
 		lastBreakAt:      make([]time.Time, len(channels)),
 		tempChannels:     make(map[int]bool),
-		lockedOut:        make(map[int]bool),
+		lockedOut:        lockedOut,
 
 		dcsPolarityWarned: make(map[*DCSDetector]bool),
 	}, nil
@@ -867,6 +903,18 @@ func (s *Scanner) pickNextChannel() (int, Channel, bool) {
 	if s.cursor >= n {
 		s.cursor = 0
 	}
+	// Priority scan: every PriorityInterleave ordinary picks, visit the
+	// next priority channel instead (without moving the main cursor), so
+	// a priority channel is sampled several times per lap the way a
+	// hardware scanner's priority check does. Skipped when the only
+	// unlocked channels are the priority ones — plain rotation already
+	// visits nothing else.
+	if s.opts.PriorityInterleave > 0 && s.sincePriority >= s.opts.PriorityInterleave {
+		if idx, ok := s.nextPriorityLocked(); ok {
+			s.sincePriority = 0
+			return idx, s.channels[idx], true
+		}
+	}
 	// Walk at most n steps looking for a non-locked-out channel.
 	// One full lap with no candidates means every channel is
 	// locked out — return ok=false so the Run loop idles.
@@ -876,9 +924,46 @@ func (s *Scanner) pickNextChannel() (int, Channel, bool) {
 		if s.lockedOut[idx] {
 			continue
 		}
+		if s.opts.PriorityInterleave > 0 {
+			if s.channels[idx].Priority > 0 {
+				// The rotation reached a priority channel on its own:
+				// that is a sample, so the interleave clock restarts.
+				s.sincePriority = 0
+			} else {
+				s.sincePriority++
+			}
+		}
 		return idx, s.channels[idx], true
 	}
 	return 0, Channel{}, false
+}
+
+// nextPriorityLocked returns the next unlocked channel with a Priority set,
+// walking priCursor so several priority channels take turns. ok is false
+// when there is none, or when every unlocked channel is a priority one
+// (interleaving would then only reorder the plain rotation). Caller holds
+// s.mu.
+func (s *Scanner) nextPriorityLocked() (int, bool) {
+	n := len(s.channels)
+	ordinary := false
+	for i, ch := range s.channels {
+		if !s.lockedOut[i] && ch.Priority <= 0 {
+			ordinary = true
+			break
+		}
+	}
+	if !ordinary {
+		return 0, false
+	}
+	for attempts := 0; attempts < n; attempts++ {
+		idx := s.priCursor % n
+		s.priCursor = (s.priCursor + 1) % n
+		if s.lockedOut[idx] || s.channels[idx].Priority <= 0 {
+			continue
+		}
+		return idx, true
+	}
+	return 0, false
 }
 
 // dataFor returns the data decoders for the given channel index, or nil
@@ -974,9 +1059,13 @@ func (s *Scanner) LockoutChannel(idx int) bool {
 	}
 	s.lockedOut[idx] = true
 	dwelling := s.dwellIndex == idx
+	ch := s.channels[idx]
 	s.mu.Unlock()
 	if dwelling {
 		s.opts.Engine.EndSyntheticCall(s.opts.DeviceSerial, trunking.EndReasonLockout)
+	}
+	if s.opts.OnLockoutChange != nil {
+		s.opts.OnLockoutChange(ch, true)
 	}
 	return true
 }
@@ -988,11 +1077,16 @@ func (s *Scanner) LockoutChannel(idx int) bool {
 // unlocked channel is a no-op (still true).
 func (s *Scanner) UnlockoutChannel(idx int) bool {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if idx < 0 || idx >= len(s.channels) {
+		s.mu.Unlock()
 		return false
 	}
 	delete(s.lockedOut, idx)
+	ch := s.channels[idx]
+	s.mu.Unlock()
+	if s.opts.OnLockoutChange != nil {
+		s.opts.OnLockoutChange(ch, false)
+	}
 	return true
 }
 
