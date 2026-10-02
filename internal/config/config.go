@@ -1889,6 +1889,43 @@ type EncryptionKeyConfig struct {
 // and an optional 0x prefix tolerated (the same rule validation applies).
 func (k EncryptionKeyConfig) KeyBytes() ([]byte, error) { return decodeHexKey(k.Key) }
 
+// Validate checks one key on its own: a supported algorithm and a hex key
+// of a length the algorithm's decoder accepts (DES 8 bytes, TDES 16 or 24,
+// AES 16 or 32, the RC4 family 1..32). Duplicate key IDs are a property of
+// the whole list and are checked by the caller (system validation,
+// `replay -key`).
+func (k EncryptionKeyConfig) Validate() error {
+	alg := k.NormalizedAlgorithm()
+	switch alg {
+	case "rc4", "des", "tdes", "aes":
+		// supported: the RC4 family (DMR Enhanced Privacy / P25 ADP) and
+		// the P25 OFB family (DES-OFB, two-/three-key TDES, AES-128/256)
+	case "":
+		return fmt.Errorf("algorithm is required (use \"rc4\", \"adp\", \"des\", \"tdes\" or \"aes\")")
+	default:
+		return fmt.Errorf("unknown algorithm %q (use \"rc4\", \"adp\", \"des\", \"tdes\" or \"aes\")", k.Algorithm)
+	}
+	b, err := decodeHexKey(k.Key)
+	if err != nil {
+		return err
+	}
+	if want := EncryptionKeyLengths(alg); len(want) > 0 {
+		okLen := false
+		for _, w := range want {
+			if len(b) == w {
+				okLen = true
+			}
+		}
+		if !okLen {
+			return fmt.Errorf("a %s key is %s bytes (%s hex digits), got %d bytes", alg, joinInts(want), joinInts(scale(want, 2)), len(b))
+		}
+	}
+	if len(b) > 32 {
+		return fmt.Errorf("key is %d bytes, must be 1..32", len(b))
+	}
+	return nil
+}
+
 // NormalizedAlgorithm is the canonical lower-case algorithm name the
 // decoders match on:
 //   - "rc4" for every spelling of the RC4 family — "rc4" / "arc4" (DMR

@@ -8,6 +8,20 @@ for tagged releases.
 ## [Unreleased]
 
 ### Added
+- **`replay -key` and `replay -format disc`: check an encrypted recording
+  offline through the daemon's own voice path, with the release binary
+  (#1187).** `-key ALG:KEYID:HEXKEY` (repeatable; `rc4` for DMR Enhanced
+  Privacy, `adp` for P25 ADP) gives `replay -record-voice` / `-audio-out` the
+  same decryption keys `trunking.systems[].encryption_keys` gives the daemon,
+  so an encrypted call records as clear audio. `replay` records only calls it
+  can grant: a conventional DMR recording grants itself, but a P25 call needs
+  its control channel in the capture. `-format disc` reads a
+  DSD-style discriminator-audio recording (mono or stereo WAV, 8/16-bit or
+  float, or 16-bit mono FLAC; `-disc-dev` sets the full-scale deviation) and
+  prints whether it looks like a real discriminator tap. Pinned by an
+  end-to-end test that carries the #1187 reporter's real on-air ciphertext
+  through `replay`: all 54 frames record as the clear speech with the key, and
+  as the untouched ciphertext without it.
 - **Competitive feature assessment + the gap series it drove.** `docs/competitive-feature-assessment.md`
   catalogs SDRTrunk, Trunk Recorder, OP25, DSD-FME / dsd-neo, DSDPlus, Unitrunker,
   Uniden / Whistler scanner firmware, the call-sharing ecosystem and general SDR apps
@@ -76,6 +90,19 @@ for tagged releases.
   live scanner run. See docs/acars.md.
 
 ### Fixed
+- **`replay -record-voice` lost the start of every call, and whole short
+  calls (#1187).** The decode runs far faster than real time, and every IQ
+  chunk decoded between the grant and the voice chain subscribing was
+  dropped. That window held the headers, the DMR Privacy Indicator header
+  that names the key, and the first P25 LDUs, and on a short over the whole
+  call. The replay voice source now keeps a 1 s pre-roll for each new chain
+  and, once a grant is decoded, holds the decode until a chain is listening.
+- **A data race between a recording call and the engine watchdog.**
+  `VoicePool.Active()` handed out the pool's live call entries, so the
+  watchdog and the REST/gRPC active-calls views read `LastHeardAt` and the
+  signal fields with no lock while the voice chain updated them on every
+  frame. It now returns copies. Found by the race detector on the #1187
+  replay test.
 - **Retention now sweeps the per-call sidecars** (`.json`, `.imb`, `.amb`, `.mp3`) with the
   audio they describe; they used to outlive it and pile up.
 - **The per-call JSON sidecar carries `algorithm_id` / `key_id`** on encrypted calls.

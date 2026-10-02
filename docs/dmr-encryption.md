@@ -34,7 +34,9 @@ Only monitor systems you are legally permitted to monitor.
 > transmission are pinned as literal on-air vectors in
 > `internal/radio/dmr/voice/testdata/ep_issue1187_ptt1.json`. What remains is
 > the daemon path on air: a live call with the key configured that records
-> intelligible audio. See [Contributing a known-key capture](#contributing-a-known-key-capture).
+> intelligible audio. The [`replay -key`](#checking-a-key-offline-with-replay)
+> path below runs that same daemon voice path on a recording, with the release
+> binary.
 
 ## Configuration
 
@@ -137,6 +139,47 @@ The counters behind all of this are in the debug-level
 `composer: dmr enhanced privacy` line: `pi_headers`, `iv_verified`,
 `mi_predicted`, `mi_mismatches`, `descrambled_frames`,
 `silence_frames`, `no_key`, `no_mi`.
+
+## Checking a key offline with `replay`
+
+`gophertrunk replay` runs a recording through the daemon's own voice path —
+decode → trunking engine → voice composer → recorder — and `-key` gives that
+path a key exactly as `encryption_keys` gives it to the daemon. No config file
+and no Go toolchain are needed; the release binary does it:
+
+```
+# A DSD-style discriminator-audio recording (the receiver's raw, unsquelched
+# FM discriminator output — mono or stereo WAV, 8/16-bit or float, any rate)
+gophertrunk replay -in ep-call.wav -format disc -protocol dmr-tier2 -freq 1 \
+  -record-voice -out-dir rec -key rc4:11:4E77AD0B51
+
+# An IQ capture (gophertrunk capture, Signal Lab, SDR# baseband…)
+gophertrunk replay -in ep-call.cs16 -format cs16 -sample-rate 2400000 \
+  -protocol dmr-tier2 -freq 1 -record-voice -out-dir rec -key rc4:11:4E77AD0B51
+```
+
+- **What `replay` can record.** It follows the grants it decodes, on the same
+  carrier. A conventional DMR recording (direct mode or a Tier II repeater)
+  grants from its own Voice LC headers, so it records. A P25 call is granted
+  by the control channel, so `-key adp:…` only helps when the capture holds
+  that control channel and the voice; a recording of a P25 voice channel on
+  its own produces no grant and no recording. For that case use the
+  `TestP25ADPReplay` harness (`GT_P25_ADP_*`, needs a Go toolchain) or a live
+  daemon run with `encryption_keys`.
+
+- `-key` is `ALG:KEYID:HEXKEY` (`rc4`/`arc4` for DMR Enhanced Privacy, `adp`
+  for P25 ADP) or `KEYID:HEXKEY` for RC4, and may be repeated — one per key
+  ID. It is validated like a config entry.
+- `-freq` is required with `-record-voice` (any non-zero value works for a
+  recording).
+- The call lands under `rec/replay/<talkgroup>/` as a `.wav` you can listen
+  to, plus the `.raw` frames and a `.json` sidecar. Intelligible speech is the
+  confirmation; the log line `composer: dmr PI header — call is encrypted …
+  key_id=11 … key_configured=true` shows the key was matched.
+- `-format disc` prints a one-line check of the audio first: a real
+  discriminator tap keeps ~90 % of its energy below 3 kHz in its keyed
+  stretches. Decoded or re-recorded audio fails that check and cannot be
+  decoded by any receiver.
 
 ## Offline analysis: the crypto-frame capture
 

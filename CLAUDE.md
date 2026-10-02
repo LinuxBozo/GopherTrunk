@@ -1586,6 +1586,48 @@ confirmation before any close-as-completed.
   Not decoded: Hytera EP (FID 0x68, 40-bit MI, vendor schedule), Kirisun, DES/AES in the voice
   path. SDRTrunk (Apache-2.0) is the layout reference; DSD-FME (GPL) was read for the
   conventions only, nothing ported.
+- **#1187 follow-up (1 Oct): the daemon decrypt path is now checkable OFFLINE with the release
+  binary — `replay -key ALG:KID:HEX` + `replay -format disc` — and doing it exposed that
+  `replay -record-voice` DROPPED the start of every call.** The reporter works in DSD+/DSD-FME
+  and cannot run `go test` harnesses, and the harnesses never exercised the daemon's composer
+  path anyway; `replay` built no `KeyResolver`, so an encrypted capture could only replay as
+  ciphertext. `-key` reuses `buildKeyResolver` + `EncryptionKeyConfig.Validate` (factored out of
+  system validation), ignoring the grant's system name; `-format disc` remodulates
+  discriminator audio (any channel count, 8/16-bit or float WAV, 16-bit FLAC) to a temp f32 IQ
+  file at the audio's rate — at amplitude 0.5, because unit-amplitude IQ tripped siglab's ADC-rail
+  overload check ("25 % clipped") and handed the operator a false diagnosis. The replay defect:
+  siglab decodes far faster than real time and `replayVoiceSource.push` discarded every chunk
+  with no subscriber, so the chunks between the grant and the composer's chain subscribing —
+  the headers, the PI header that NAMES THE KEY, the first LDUs, a whole short over — were lost;
+  the source now keeps a 1 s pre-roll for each new subscriber and, once a grant is on the bus
+  with no chain listening, holds the decode (≤5 s) until a chain subscribes. The grant is read
+  off a bus subscription drained ON THE DECODE GOROUTINE at the top of each push (`watchGrants`;
+  `Bus.Publish` enqueues synchronously), because the first version armed on CallStart via an
+  async listener and PR #1234's CI (-race, loaded runner) lost the call: the decode raced past
+  the pre-roll before the start arrived (`TestReplayVoiceSourceHoldsOnGrantBeforeCallStart`,
+  failing-first). The same CI run's other half: the composer's hangtime and no-voice startup
+  window (2× hangtime) are WALL-CLOCK, and the test's 500 ms hangtime let a starved chain be
+  torn down before its first voice frame — tests of the replay voice path must use
+  `replayDefaultVoiceHangtimeMs` (3.5 s), never a tight value. Pinned failing-first by
+  `TestReplayDecryptsRealAirEnhancedPrivacyFromDiscAudio`: the committed real-air ciphertext
+  (`ep_issue1187_ptt1.json`) re-framed into a keyup (noise → Voice LC Headers → PI headers → the
+  three captured superframes with their EMB/embedded LC → noise), discriminated to a 96 kHz WAV,
+  through `prepareDiscInput` + siglab + the replay rig: 54/54 frames clear with the key, 54/54
+  ciphertext without; 0 frames without the pre-roll. Fixture traps that cost a round each:
+  (1) a repeating `i&3` dibit filler carries a fixed symbol mean the AFC reads as carrier offset
+  — use random dibits; (2) a stream that is carrier from sample 0 never arms the DMR receiver's
+  feed-forward timing acquisition (it needs an absence first), so phases 1–5 of every 10-sample
+  symbol never locked — model a keyup with noise before it, as a squelch-off recording has;
+  (3) bursts B–F need the call's Full LC in their embedded fragments or the composer's slot
+  router never binds the slot on a short call; (4) the disc sanity line measured over the whole
+  file called a genuine tap with noise gaps "not a tap" (47 %) — it now uses the 95th percentile
+  of per-20 ms-block fractions (92 % on the same file; the gated-white-noise shape of the
+  reporter's first files still fails). The same test also caught a PRODUCTION data race under
+  `-race`: `VoicePool.Active()` returned the pool's live `*ActiveCall`s, so `runWatchdog` (and the
+  API's `ActiveCalls()`) read `LastHeardAt` unlocked while `Touch` wrote it per voice frame; both
+  now return copies (every caller acts on a call through its device serial), pinned by
+  `TestVoicePoolActiveSnapshotIsRaceFree`. Limit: replay records only what it can GRANT on the decoded carrier — conventional DMR grants itself, but the P25 pipeline grants only from CC TSBKs, so a P25 voice-channel-only recording (the reporter's ADP file) records nothing; `TestP25ADPReplay` or a live run covers ADP. STILL OPEN: the reporter's own run (`replay -format disc
+  … -key rc4:11:<key>` on their files, or a live daemon call).
 - **MDC1200 NEVER decoded a real radio in its whole life (#1220, 27 Sep): the line code is
   XOR-precoded MSK, and the receiver sliced the TONES as the data.** The reference modem
   (Kaufman's mdc-encode-decode, GPL — read for protocol facts only, nothing ported) sends one

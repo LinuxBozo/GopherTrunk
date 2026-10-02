@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/MattCheramie/GopherTrunk/internal/scanner/ccdecoder"
@@ -35,7 +36,7 @@ func runReplay(args []string) {
 	fs := flag.NewFlagSet("replay", flag.ExitOnError)
 	verboseFlag := fs.Bool("verbose-errors", false, "print full error chain + stack on failures")
 	in := fs.String("in", "", "raw IQ input file, or - for standard input (required). Piping stdin lets an external IQ source feed the decoder, e.g. `iq-source | gophertrunk replay -in - -format f32 -sample-rate 2400000` (issue #314). stdin is a one-way stream, so -auto-tune (which must seek) is not supported with -in -; use -tune-hz.")
-	format := fs.String("format", "u8", "sample format: u8 (rtl_sdr 8-bit unsigned interleaved IQ) | f32 (GNU Radio cfile, interleaved float32; aliases cf32/fc32 — the SoapySDR/OpenWebRX+ spelling) | cs16/sc16 (interleaved little-endian int16 IQ, the .raw/.cs16 SDR capture format) | wav (2-channel 16-bit baseband WAV — SDRtrunk/SDR++/GopherTrunk narrowband recording; sample rate is read from the header)")
+	format := fs.String("format", "u8", "sample format: u8 (rtl_sdr 8-bit unsigned interleaved IQ) | f32 (GNU Radio cfile, interleaved float32; aliases cf32/fc32 — the SoapySDR/OpenWebRX+ spelling) | cs16/sc16 (interleaved little-endian int16 IQ, the .raw/.cs16 SDR capture format) | wav (2-channel 16-bit baseband WAV — SDRtrunk/SDR++/GopherTrunk narrowband recording; sample rate is read from the header) | disc (DISCRIMINATOR AUDIO, not IQ: an FM receiver's raw unsquelched output as DSD+/DSD-FME take it — mono or stereo WAV, 8/16-bit or float, or 16-bit mono FLAC; sample rate read from the file; see -disc-dev)")
 	sampleRate := fs.Float64("sample-rate", 2_400_000, "IQ sample rate in Hz")
 	demod := fs.String("demod", "c4fm", "P25 Phase 1 demod mode: c4fm | cqpsk")
 	protocolFlag := fs.String("protocol", "p25p1", "decoder to run: p25p1 | p25-phase2 | dmr | dmr-tier2 | nxdn | dpmr | edacs | motorola | ltr | mpt1327 | tetra | ysf | dstar (aliases: dmr-tier3)")
@@ -56,7 +57,10 @@ func runReplay(args []string) {
 	recordVoice := fs.Bool("record-voice", false, "decode and record voice for the capture's grants, writing .wav/.raw/.json under -out-dir. Wires the production voice path (engine → composer → recorder) onto the decode, following each grant on the decoded (same) carrier. Best for conventional systems (DMR Tier II / IPSC, TETRA) whose voice rides the decoded carrier.")
 	outDir := fs.String("out-dir", "", "recordings directory for -record-voice (required with it)")
 	audioOut := fs.String("audio-out", "", "stream decoded voice audio as continuous raw signed 16-bit little-endian mono PCM at 8000 Hz to this file/FIFO, or - for stdout — so an external consumer (OpenWebRX+, aplay, sox) plays calls live instead of waiting for per-call WAVs (issue #314). Wires the same voice path as -record-voice (usable with or without it) and shares its constraints: requires -freq, no -auto-tune. With -audio-out -, give -out a file path so the decode result doesn't interleave with the PCM on stdout. Opening a FIFO blocks until a reader attaches.")
-	voiceHangtimeMs := fs.Int("voice-hangtime-ms", 3500, "end-of-transmission hangtime for -record-voice, in ms")
+	voiceHangtimeMs := fs.Int("voice-hangtime-ms", replayDefaultVoiceHangtimeMs, "end-of-transmission hangtime for -record-voice, in ms")
+	var keys replayKeyFlags
+	fs.Var(&keys, "key", "decryption key for -record-voice / -audio-out, repeatable: ALG:KEYID:HEXKEY (rc4 / arc4 = DMR Enhanced Privacy, adp = P25 ADP) or KEYID:HEXKEY for RC4, e.g. -key rc4:11:4E77AD0B51 -key adp:1:1234567890. Validated like trunking.systems[].encryption_keys; the voice path then descrambles exactly as the daemon does (issue #1187)")
+	discDev := fs.Float64("disc-dev", discDefaultDeviationHz, "with -format disc: the deviation in Hz a full-scale audio sample represents when the discriminator audio is turned back into IQ (rarely needs changing — the receivers normalise symbol levels)")
 	fs.Usage = func() {
 		fmt.Fprintln(fs.Output(), `gophertrunk replay — decode a raw IQ capture file offline (any protocol).
 
@@ -87,6 +91,18 @@ EXAMPLES:
   # DMR Tier III control channel from a wideband cfile
   gophertrunk replay -in dmr.cfile -format f32 -sample-rate 2400000 -protocol dmr -auto-tune
 
+  # Encrypted voice, checked offline through the daemon's own voice path
+  # (issue #1187): a DSD-style discriminator-audio recording of a DMR
+  # Enhanced Privacy call, decrypted with its key and recorded as WAV
+  gophertrunk replay -in ep-call.wav -format disc -protocol dmr-tier2 -freq 1 \
+                    -record-voice -out-dir rec -key rc4:11:4E77AD0B51
+  # …and the same from an IQ capture (DMR conventional voice rides the
+  # decoded carrier; P25 ADP needs the capture to hold the control channel
+  # that grants the call — a voice-channel-only P25 recording grants nothing)
+  gophertrunk replay -in ep-call.cs16 -format cs16 -sample-rate 2400000 \
+                    -protocol dmr-tier2 -freq 1 -record-voice -out-dir rec \
+                    -key rc4:11:4E77AD0B51
+
   # Any other protocol GopherTrunk decodes (e.g. TETRA), with structured export
   gophertrunk replay -in tetra.cfile -format f32 -sample-rate 2400000 -protocol tetra -out-format json -out out.json
 
@@ -111,10 +127,35 @@ FLAGS:`)
 	if err != nil {
 		rep.Fatal(2, err)
 	}
-	sampleFormat, err := siglab.ParseSampleFormat(*format)
-	if err != nil {
-		rep.Fatal(2, err)
+	if len(keys) > 0 && !*recordVoice && *audioOut == "" {
+		rep.Fatalf(2, "-key decrypts the voice path: use it with -record-voice and/or -audio-out")
 	}
+	// -format disc: discriminator audio is turned back into IQ (a temporary
+	// f32 file at the audio's own rate) and decoded like any capture (#1187).
+	var sampleFormat siglab.SampleFormat
+	discCleanup := func() {}
+	if f := strings.ToLower(strings.TrimSpace(*format)); f == "disc" || f == "discriminator" {
+		if *in == "-" {
+			rep.Fatalf(2, "-format disc reads a file; stdin is not supported")
+		}
+		iqPath, rate, sanity, cleanup, derr := prepareDiscInput(*in, *discDev)
+		if derr != nil {
+			rep.Fatal(2, derr)
+		}
+		discCleanup = cleanup
+		fmt.Fprintf(os.Stderr, "replay: discriminator audio %s at %.0f Hz, remodulated at ±%.0f Hz full scale", *in, rate, *discDev)
+		if sanity != "" {
+			fmt.Fprintf(os.Stderr, "; %s", sanity)
+		}
+		fmt.Fprintln(os.Stderr)
+		*in, *sampleRate, sampleFormat = iqPath, rate, siglab.FormatF32
+	} else {
+		sampleFormat, err = siglab.ParseSampleFormat(*format)
+		if err != nil {
+			rep.Fatal(2, err)
+		}
+	}
+	defer discCleanup()
 	of, err := siglab.ParseFormat(*outFormat)
 	if err != nil {
 		rep.Fatal(2, err)
@@ -204,7 +245,7 @@ FLAGS:`)
 		if target := ccdecoder.DDCTargetForProtocol(proto); *sampleRate != target {
 			ddcRate = target
 		}
-		voiceRig, err = setupReplayVoice(recDir, ddcRate, time.Duration(*voiceHangtimeMs)*time.Millisecond, audioSink, logger)
+		voiceRig, err = setupReplayVoice(recDir, ddcRate, time.Duration(*voiceHangtimeMs)*time.Millisecond, audioSink, replayKeyResolver(keys, logger), logger)
 		if err != nil {
 			rep.Fatal(1, err)
 		}
@@ -255,6 +296,7 @@ FLAGS:`)
 		_ = audioFile.Close()
 	}
 	if err != nil {
+		discCleanup() // rep.Fatal exits without running defers
 		rep.Fatal(1, err)
 	}
 
