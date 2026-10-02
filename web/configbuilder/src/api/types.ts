@@ -207,6 +207,7 @@ export interface RecordingsConfig {
   WriteRaw: boolean;
   MBEFiles?: boolean;
   SkipEncrypted: boolean;
+  MuteEncrypted: boolean;
   Equalizer: EqualizerConfig;
   Normalize: NormalizeConfig;
   WarmDMRAudio?: boolean;

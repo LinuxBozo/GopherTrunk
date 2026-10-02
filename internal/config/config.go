@@ -2051,6 +2051,16 @@ type RecordingsConfig struct {
 	// encrypted calls (with their backfilled encryption / alg / key
 	// metadata) to them. See issue #897.
 	SkipEncrypted bool `yaml:"skip_encrypted"`
+	// MuteEncrypted, when true, records and streams SILENCE for an encrypted
+	// call that no configured encryption_keys entry decrypts, instead of the
+	// vocoder's random-parameter rendering of the ciphertext — the behaviour
+	// of every hardware scanner and of SDRTrunk / trunk-recorder / DSD-FME.
+	// The .raw / .imb / .amb sidecars still hold the ciphertext frames and
+	// the call is logged, uploaded and shown exactly as before; only the
+	// PCM is silent. A call decrypted in-process (key configured for its key
+	// id) is never muted. Default false (legacy: ciphertext through the
+	// vocoder).
+	MuteEncrypted bool `yaml:"mute_encrypted"`
 	// CryptoCapturePath, when set, opts into the cryptolab crypto-frame
 	// bridge: for each encrypted P25 Phase 1 superframe — and each
 	// encrypted DMR voice superframe (issue #1187) — the voice composer

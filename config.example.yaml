@@ -229,6 +229,13 @@ recordings:
                          # NOTE: true also suppresses the completed-call
                          # broadcast backends (webhook/rdioscanner) for
                          # encrypted calls — keep false to deliver them.
+  mute_encrypted: false  # record + stream SILENCE for an encrypted call no
+                         # configured encryption_keys entry decrypts (what a
+                         # hardware scanner / SDRTrunk / DSD-FME do) instead of
+                         # the vocoder's rendering of the ciphertext. The
+                         # .raw/.imb/.amb sidecars keep the ciphertext and the
+                         # call is logged / uploaded as before. A call decrypted
+                         # in-process (key configured) is never muted.
   unvoiced_gain: 0     # vocoder unvoiced (fricative) band level vs a voiced harmonic of the same
                        # amplitude. 0 = default 5.49 (mbelib / DSD level; the old GopherTrunk
                        # scaling sat 6-15 dB below it = muffled, consonant-less speech);

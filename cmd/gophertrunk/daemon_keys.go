@@ -43,3 +43,37 @@ func buildKeyResolver(systems []config.SystemConfig, log *slog.Logger) composer.
 		return e.key, true
 	}
 }
+
+// buildKeyConfigured turns trunking.systems[].encryption_keys into the
+// recorder's "is this call decryptable" predicate (RecorderOptions.
+// KeyConfigured): true when the system lists the call's key id, or — while
+// the key id is still unknown (0, before the first Encryption Sync / PI
+// header) — when the system has any key at all, mirroring the engine's
+// systemHasKeys deferral. The algorithm is not checked here: the voice
+// chain refuses a key whose length disagrees with the ALGID on air, and a
+// mismatched entry is an operator error better seen in the log than
+// silently muted. Returns nil when no system configures a key.
+func buildKeyConfigured(systems []config.SystemConfig) func(system string, algID uint8, keyID uint16) bool {
+	keys := map[string]map[uint16]bool{}
+	for _, s := range systems {
+		for _, k := range s.EncryptionKeys {
+			if keys[s.Name] == nil {
+				keys[s.Name] = map[uint16]bool{}
+			}
+			keys[s.Name][k.KeyID] = true
+		}
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+	return func(system string, _ uint8, keyID uint16) bool {
+		ids := keys[system]
+		if len(ids) == 0 {
+			return false
+		}
+		if keyID == 0 {
+			return true
+		}
+		return ids[keyID]
+	}
+}

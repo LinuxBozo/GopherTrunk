@@ -308,6 +308,12 @@ export function RecordingsSection() {
         onChange={(x) => set({ ...cfg, SkipEncrypted: x })}
         help="Don't record calls flagged encrypted. Aborts and deletes the file if encryption is only detected mid-call."
       />
+      <BoolField
+        label="Mute encrypted calls"
+        value={!!cfg.MuteEncrypted}
+        onChange={(x) => set({ ...cfg, MuteEncrypted: x })}
+        help="Record and stream silence for an encrypted call no configured key decrypts, instead of vocoder noise. Sidecars keep the ciphertext; the call is still logged and uploaded."
+      />
       <SelectField
         label="Voice profile"
         value={cfg.VoiceProfile ?? ""}

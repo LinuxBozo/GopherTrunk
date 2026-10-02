@@ -304,6 +304,21 @@ the algorithm); pitch continuity off the chance floor is the confirmation.
 Not decrypted on P25: DES-XL (0x9F, a different construction) and Phase 2
 TDMA (the composer's Phase 2 chain only publishes the Encryption Sync).
 
+## Calls you cannot decrypt: `recordings.mute_encrypted`
+
+Without a key the vocoder renders the ciphertext as random-parameter
+"speech" — loud, unintelligible, and easy to mistake for a decode fault.
+`recordings.mute_encrypted: true` records and streams **silence** for an
+encrypted call no configured key covers (the behaviour of every hardware
+scanner, SDRTrunk, trunk-recorder and DSD-FME), while the `.raw` / `.imb` /
+`.amb` sidecars keep the ciphertext frames and the call is logged, shown and
+uploaded exactly as before. A call whose key id matches an `encryption_keys`
+entry is decrypted in-process and never muted; encryption discovered
+mid-call (a P25 LDU2 Encryption Sync) mutes from that frame on. The
+call-ended log line carries `muted_frames` so a silent recording of an
+encrypted call reads as intended. `skip_encrypted` remains the stronger
+option (no file at all).
+
 ## Decoding the `.raw` sidecar out-of-band
 
 The `.raw` file is a flat concatenation of 7-byte frames, each holding
