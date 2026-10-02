@@ -117,33 +117,36 @@ The inner FEC layers still pending real-air validation:
   TETRA-side is the **DMO** on-air A/B (issue #1003) and a
   validating `.metadata.json` sidecar for `samples/tetra/` so the
   skip-gated TMO real-air harness runs.
-- **P25 Phase 2 traffic-channel MAC descramble (issues #915, #773, #451).**
-  The superframe now locks on real air under any dibit rotation (the
-  differential-H-DQPSK residual-carrier ambiguity fixed in #943), so the ISCH
-  classifies the MAC sub-frames correctly and `mac_pdus > 0`. What still does
-  **not** work is recovering a valid MAC PDU from the payload: `mac_rs_valid`
-  stays 0, so the clear-MAC source RID (#915) and talker alias (#773) never
-  surface. Replaying the reporter's Victorian MMR (WACN `0xBEE00`) Phase 2 voice
-  `.cfile` offline ruled out — against real bytes — every tractable hypothesis:
-  the payload's trellis path-metric is ~42/73 (random) undescrambled while the
-  un-scrambled sync + ISCH decode clean, so the payload *is* transformed; but
-  descrambling it (both **after** the trellis at per-slot offsets
-  {`index·360`, `index·144`, `0`} and **before** the trellis at offsets
-  {`0`, superframe `index·360+64`}) across **all 16.7 M** `(WACN, SysID, NAC)`
-  identity seeds never validates the outer RS and only nudges the best trellis
-  metric 41.8 → 33.8 (still garbage). A seed-independent structure test
-  (XOR two same-slot payloads, which must share the sequence under any
-  per-superframe-restarting PN44 model — the sequence then cancels and the linear
-  trellis code makes the XOR a clean codeword) stays at ~41 error, so the
-  transform is **not** a fixed positional PN44 XOR keyed by the network identity.
-  What remains is a continuous / counter-seeded scrambler or a MAC FEC chain
-  (trellis params / interleaver / RS-before-conv order) different from what GT
-  models — pinning it needs the TIA-102.BBAC §7.x scramble/FEC definition or an
-  SDRtrunk / OP25 P25P2 reference to cross-check. The site's real System ID + NAC
-  would remove the seed unknown and separate a seed-formula bug from a
-  scramble-structure bug. The `mac_rs_valid` census counter (#934) is the
-  before/after metric once a candidate mapping is tried, and the RS-valid gate
-  keeps the mis-decoded bytes from injecting a bogus source RID in the meantime.
+- **P25 Motorola talker alias (issue #773) — DECODED. What remains is Phase 2
+  traffic-channel MAC yield on weak air (issue #915).** The proprietary
+  Motorola alias cipher was recovered by clean-room reverse engineering and is
+  enabled (`motorola.CipherVerified = true`, PR #1123, shipped in v1.0.8): it
+  reproduces a held-out reference set byte-for-byte (1242/1242 characters) and
+  decodes the real #376 capture (RID 200062) to "CRIO 0062" with a valid
+  CRC-16/GSM. Reassembly, SUID framing, the self-delimiting CRC framing and the
+  live wiring on BOTH paths (voice composer and `signalling_taps` follower share
+  one `MACDispatcher`) are pinned end-to-end by
+  `sigfollow.TestDispatcherPublishesRealMotorolaAliasAsReliable` — which also
+  caught the last live-path defect: the fragment parsers sliced to the END of
+  the payload, and a live 144-bit MAC PDU is one byte longer than the 15-byte
+  SDRTrunk dump fixtures, so every fragment carried a trailing byte that
+  shifted the cipher region (RID parsed, name dropped). Fragments are now
+  fixed-length (64-bit header / 100-bit data). Operator guide:
+  `docs/talker-alias.md`. The alias rides FACCH-S MAC PDUs on the Phase 2
+  *traffic* channel, so it surfaces exactly as often as a MAC PDU RS-validates
+  there — and on the #915 reporter's weak Victorian MMR capture that is still
+  rare: the PN44 descramble now runs in the coded-channel-bit domain (#915
+  Finding B), the superframe locks under any dibit rotation (#943), but the
+  ground-truth replay (`phase2.TestGroundTruthReplay`) recovers 0/17 source RIDs
+  at `mac_rs_valid=0` because the channel is AWGN-limited at the differential
+  detector. The sensitivity levers built for it — `p25_phase2_soft_decision: on`,
+  `p25_phase2_rs_mode: correct`, `p25_phase2_equalizer: on` — are opt-in and
+  move the synthetic RID metric off zero (36 → 133); their on-air effect still
+  needs a higher-SNR Phase 2 capture with a simultaneous SDRTrunk-decoded RID.
+  `mac_rs_valid` in the composer's per-call census and the `p25p2 alias
+  ciphertext` log line are the two instruments: ciphertext lines with no alias
+  would mean a cipher regression (none seen); no ciphertext lines on a
+  followed Phase 2 call means the MAC PDUs are not decoding (#915).
 - **DMR 2-slot interleaved voice — now the Tier II conventional &
   Tier III default (issue #644).** A DMR carrier is 2-slot TDMA, so a real
   outbound stream interleaves both timeslots' bursts. The single-slot

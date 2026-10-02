@@ -48,6 +48,20 @@ confirmation before any close-as-completed.
 
 ## DSP / replay notes (so the next investigation starts ahead)
 
+- **The Motorola P25 talker-alias cipher (#773) IS SOLVED and enabled (`motorola.CipherVerified
+  = true`, PR #1123, v1.0.8) — do not tell a reporter it is still gated or still needs a
+  chosen-plaintext capture.** The 29 Sep stale-check bot did exactly that five weeks after the
+  cipher landed, and the reporter gave up and moved to SDRTrunk. Verified: 1242/1242 held-out
+  characters, the real #376 capture → "CRIO 0062" with a valid CRC-16/GSM, and an end-to-end
+  dispatcher test on 144-bit sub-frames (`sigfollow.TestDispatcherPublishesRealMotorolaAliasAsReliable`).
+  That test caught a live-only defect the 15-byte SDRTrunk-dump fixtures could never see: a live
+  MAC PDU is 144 bits = a 16-byte vendor payload, and the fragment parsers sliced to the payload
+  END, so each fragment carried one trailing byte that shifted the cipher region (RID parsed, name
+  garbage, dropped). Fragments are fixed-length (64-bit header / 100-bit data, SDRTrunk's public
+  constants). Lesson: when fixtures come from another decoder's *dump*, also pin the PDU shape the
+  LIVE FEC chain hands out. What is NOT closed: on-air confirmation on the reporter's rig, and
+  Phase 2 MAC yield on weak air (#915: 0/17 RIDs at `mac_rs_valid=0` on their capture; the alias
+  rides the same MAC PDUs). Operator guide: `docs/talker-alias.md`.
 - **FLAC is now a first-class container on every recorder that had a container at all**,
   with ONE shared stereo encode core (`baseband.FLACIQEncoder` — `siglab.IQContainer`
   delegates to it) and a mono voice twin (`voice.FlacWriter`): `capture -format wav|flac`
