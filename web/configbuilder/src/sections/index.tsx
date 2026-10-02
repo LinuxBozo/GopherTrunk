@@ -18,6 +18,7 @@ import {
 import { ToneOutSection } from "./ToneOut";
 import { BroadcastSection } from "./Broadcast";
 import { AlertsSection } from "./Alerts";
+import { TranscriptionSection } from "./Transcription";
 import { BasebandSection } from "./Baseband";
 import { PagingSection } from "./Paging";
 import { APRSSection } from "./APRS";
@@ -57,6 +58,7 @@ export const SECTIONS: SectionDef[] = [
   { key: "tone_out", cfgKey: "ToneOut", label: "Tone-out", render: () => <ToneOutSection /> },
   { key: "broadcast", cfgKey: "Broadcast", label: "Broadcast", render: () => <BroadcastSection /> },
   { key: "alerts", cfgKey: "Alerts", label: "Alerts", render: () => <AlertsSection /> },
+  { key: "transcription", cfgKey: "Transcription", label: "Transcription", render: () => <TranscriptionSection /> },
   { key: "baseband", cfgKey: "Baseband", label: "Baseband", render: () => <BasebandSection /> },
   { key: "paging", cfgKey: "Paging", label: "Paging", render: () => <PagingSection /> },
   { key: "aprs", cfgKey: "APRS", label: "APRS", render: () => <APRSSection /> },

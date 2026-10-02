@@ -52,3 +52,30 @@ func (s *Server) handleAlertsTest(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "channel": name})
 }
+
+// handleTranscriptionStatus serves GET /api/v1/transcription: the backend's
+// counters (sent / failed / skipped / queue drops, mean latency, the last
+// transcript) or configured:false.
+func (s *Server) handleTranscriptionStatus(w http.ResponseWriter, _ *http.Request) {
+	if s.transcription == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"configured": false})
+		return
+	}
+	st := s.transcription.Status()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"configured":      true,
+		"url":             st.URL,
+		"model":           st.Model,
+		"language":        st.Language,
+		"queued":          st.Queued,
+		"dropped":         st.Dropped,
+		"sent":            st.Sent,
+		"failed":          st.Failed,
+		"skipped":         st.Skipped,
+		"last_error":      st.LastError,
+		"last_text":       st.LastText,
+		"last_at":         st.LastAt,
+		"audio_seconds":   st.AudioSeconds,
+		"mean_latency_ms": st.MeanLatency.Milliseconds(),
+	})
+}

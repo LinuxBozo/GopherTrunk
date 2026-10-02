@@ -1679,6 +1679,31 @@ broadcast:
 #       on: [cc.lost]
 #       channels: [phone]
 
+# Speech-to-text for finished recordings. Each recording is POSTed to an
+# OpenAI-compatible transcription endpoint (OpenAI's /v1/audio/transcriptions,
+# a local whisper.cpp `server` at /inference, faster-whisper / Speaches,
+# LocalAI — all take the same multipart `file` + `model` and answer
+# {"text": …}); the text is stored on the call (History shows it, the `q`
+# search matches it, GET /api/v1/calls/history?format=csv exports it),
+# published as the `call.transcript` event, and alert rules can watch it
+# with `keywords:` ("alert me when they say 'shots fired'"). GopherTrunk never
+# runs a model itself. GET /api/v1/transcription shows counters.
+# transcription:
+#   enabled: true
+#   url: "http://127.0.0.1:8080/inference"      # whisper.cpp server, or
+#   # url: "https://api.openai.com/v1/audio/transcriptions"
+#   # api_key: "sk-…"                           # Bearer token (hosted APIs)
+#   model: "whisper-1"                          # ignored by local servers
+#   language: "en"                              # empty = auto-detect
+#   prompt: "Engine 1, Medic 7, Main Street"    # vocabulary hint (optional)
+#   systems: ["Example-P25"]                    # empty = every system
+#   # talkgroups: [1001, 1002]
+#   min_duration_ms: 1000                       # skip squelch tails
+#   workers: 1
+#   timeout: 60s
+#   upload_format: wav16k                       # wav16k (default) | original
+#   skip_encrypted: true
+
 # Baseband (IQ) recording and offline replay. `record` taps a tuner and
 # writes IQ to a two-channel 16-bit WAV (the same layout SDRtrunk/SDR++ use);
 # `replay` mounts recorded WAVs as virtual tuners so a capture can be decoded

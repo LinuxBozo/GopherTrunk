@@ -499,6 +499,8 @@ export interface CallRow {
   id: number;
   system: string;
   protocol: string;
+  // Speech-to-text of the recording when the transcription backend ran.
+  transcript?: string;
   group_id: number;
   source_id?: number;
   frequency_hz: number;

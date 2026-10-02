@@ -412,9 +412,25 @@ export interface AlertRuleConfig {
   ToneProfiles: string[] | null;
   MinDurationMs: number;
   Cooldown: string;
+  Keywords: string[] | null;
   Channels: string[] | null;
   Message: string;
   AttachAudio: boolean;
+}
+export interface TranscriptionConfig {
+  Enabled: boolean;
+  URL: string;
+  APIKey: string;
+  Model: string;
+  Language: string;
+  Prompt: string;
+  Systems: string[] | null;
+  Talkgroups: number[] | null;
+  MinDurationMs: number;
+  Workers: number;
+  Timeout: string;
+  UploadFormat: string;
+  SkipEncrypted: boolean | null;
 }
 export interface AlertsConfig {
   Channels: AlertChannelConfig[] | null;
@@ -604,6 +620,7 @@ export interface GTConfig {
   Audio: AudioConfig;
   Broadcast: BroadcastConfig;
   Alerts: AlertsConfig;
+  Transcription: TranscriptionConfig;
   Baseband: BasebandConfig;
   Paging: PagingConfig;
   APRS: APRSConfig;

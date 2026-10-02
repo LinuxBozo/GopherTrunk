@@ -18,6 +18,7 @@ import (
 	gtdiag "github.com/MattCheramie/GopherTrunk/internal/diag"
 	"github.com/MattCheramie/GopherTrunk/internal/events"
 	"github.com/MattCheramie/GopherTrunk/internal/sdr"
+	"github.com/MattCheramie/GopherTrunk/internal/transcribe"
 	"github.com/MattCheramie/GopherTrunk/internal/trunking"
 )
 
@@ -33,6 +34,12 @@ type EngineSnapshot interface {
 	// IsKnownRadio reports whether id has been observed as a subscriber radio,
 	// used to filter a phantom auto-discovered talkgroup out of the list.
 	IsKnownRadio(id uint32) bool
+}
+
+// TranscriptionProvider is the transcription backend's read side
+// (internal/transcribe.Manager). Optional.
+type TranscriptionProvider interface {
+	Status() transcribe.Status
 }
 
 // ScanControl is the engine's talkgroup hold / timed-avoid surface
@@ -307,38 +314,39 @@ type Server struct {
 	// address after net.Listen — important for ":0" / "127.0.0.1:0"
 	// configurations where the kernel picks the port. Read via
 	// BoundAddr(). Empty until Run() has bound (or after Close).
-	boundAddr    string
-	bus          *events.Bus
-	engine       EngineSnapshot
-	mutator      EngineMutator
-	retention    RetentionSweeper
-	tones        ToneDetectorReset
-	devices      DevicesProvider
-	scanner      ScannerCockpit
-	hunt         HuntCockpit
-	audio        AudioController
-	broadcast    BroadcastStatusProvider
-	runtime      RuntimeProvider
-	configWriter ConfigWriter
-	configActiv  ConfigActivator
-	settings     SettingsApplier
-	importer     Importer
-	imports      *importStaging
-	webAssets    fs.FS
-	talkgroups   *trunking.TalkgroupDB
-	rids         *trunking.RIDDB
-	systems      []trunking.System
-	history      HistoryQuery
-	locations    LocationQuery
-	affiliations AffiliationProvider
-	patches      PatchProvider
-	alerts       AlertsProvider
-	scanControl  ScanControl
-	sites        SitesProvider
-	grants       GrantsProvider
-	metrics      http.Handler
-	log          *slog.Logger
-	version      string
+	boundAddr     string
+	bus           *events.Bus
+	engine        EngineSnapshot
+	mutator       EngineMutator
+	retention     RetentionSweeper
+	tones         ToneDetectorReset
+	devices       DevicesProvider
+	scanner       ScannerCockpit
+	hunt          HuntCockpit
+	audio         AudioController
+	broadcast     BroadcastStatusProvider
+	runtime       RuntimeProvider
+	configWriter  ConfigWriter
+	configActiv   ConfigActivator
+	settings      SettingsApplier
+	importer      Importer
+	imports       *importStaging
+	webAssets     fs.FS
+	talkgroups    *trunking.TalkgroupDB
+	rids          *trunking.RIDDB
+	systems       []trunking.System
+	history       HistoryQuery
+	locations     LocationQuery
+	affiliations  AffiliationProvider
+	patches       PatchProvider
+	alerts        AlertsProvider
+	scanControl   ScanControl
+	transcription TranscriptionProvider
+	sites         SitesProvider
+	grants        GrantsProvider
+	metrics       http.Handler
+	log           *slog.Logger
+	version       string
 
 	auth *authState
 	// allowMutations is kept for backwards compatibility with
@@ -755,6 +763,9 @@ type CallRow struct {
 	// HasRecording is true when a finished WAV exists for this call. The path
 	// is not exposed; the UI plays via GET /api/v1/calls/{id}/audio.
 	HasRecording bool `json:"has_recording,omitempty"`
+	// Transcript is the speech-to-text of the recording when the
+	// transcription backend produced one.
+	Transcript string `json:"transcript,omitempty"`
 }
 
 // ServerOptions configure a new Server.
@@ -780,6 +791,8 @@ type ServerOptions struct {
 	Alerts AlertsProvider
 	// ScanControl is optional: talkgroup hold / timed avoid (the engine).
 	ScanControl ScanControl
+	// Transcription is optional: the speech-to-text backend's counters.
+	Transcription TranscriptionProvider
 	// Patches is optional. When non-nil GET /api/v1/patches serves the
 	// live patch/supergroup table (P25 Motorola/Harris regroups).
 	Patches PatchProvider
@@ -1126,6 +1139,7 @@ func NewServer(opts ServerOptions) (*Server, error) {
 		patches:        opts.Patches,
 		alerts:         opts.Alerts,
 		scanControl:    opts.ScanControl,
+		transcription:  opts.Transcription,
 		sites:          opts.Sites,
 		grants:         opts.Grants,
 		metrics:        opts.MetricsHandler,
@@ -1321,6 +1335,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/v1/affiliations", s.handleAffiliations)
 	mux.HandleFunc("GET /api/v1/patches", s.handlePatches)
 	mux.HandleFunc("GET /api/v1/alerts", s.handleAlertsStatus)
+	mux.HandleFunc("GET /api/v1/transcription", s.handleTranscriptionStatus)
 	mux.HandleFunc("POST /api/v1/alerts/test/{channel}", s.gate(s.handleAlertsTest))
 	mux.HandleFunc("GET /api/v1/grants", s.handleGrants)
 	mux.HandleFunc("GET /api/v1/sites", s.handleListSites)

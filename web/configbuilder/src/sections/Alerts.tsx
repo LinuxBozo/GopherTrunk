@@ -153,6 +153,7 @@ export function AlertsSection() {
             ToneProfiles: null,
             MinDurationMs: 0,
             Cooldown: "",
+            Keywords: null,
             Channels: channelNames.length ? [channelNames[0]] : null,
             Message: "",
             AttachAudio: false,
@@ -183,6 +184,7 @@ export function AlertsSection() {
                 />
                 <NumberField label="Min duration (ms)" value={r.MinDurationMs} onChange={(v) => setR({ ...r, MinDurationMs: v })} help="call.end / call.complete only." />
                 <TextField label="Cooldown" value={r.Cooldown} onChange={(v) => setR({ ...r, Cooldown: v })} help="e.g. 30s, 5m — per system + talkgroup." />
+                <TextField label="Keywords" value={formatCommaList(r.Keywords)} onChange={(v) => setR({ ...r, Keywords: parseCommaList(v) })} help="Fire only when a transcript / alias / reason contains one of these (comma-separated, case-insensitive). Use with on: call.transcript." />
                 <BoolField label="Attach audio" value={r.AttachAudio} onChange={(v) => setR({ ...r, AttachAudio: v })} help="call.complete rules: attach the recording (Discord / Telegram / webhook)." />
               </div>
               <TextField label="Message template" value={r.Message} onChange={(v) => setR({ ...r, Message: v })} help="Optional Go template, e.g. {{.System}} TG {{.TalkgroupAlpha}} from {{.Source}}. Empty = built-in message." />

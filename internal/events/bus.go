@@ -111,6 +111,9 @@ const (
 	KindUnitDeny     Kind = "unit.deny"
 	KindUnitFunction Kind = "unit.function"
 	KindUnitMonitor  Kind = "unit.monitor"
+	// KindCallTranscript fires when the transcription backend has the text
+	// of a finished recording (trunking.CallTranscript).
+	KindCallTranscript Kind = "call.transcript"
 	// KindAudioState fires when an operator changes the live-audio
 	// cockpit — volume, mute, or recording-gate. The payload is the
 	// new state (the same shape as GET /api/v1/audio). Subscribers

@@ -1135,3 +1135,67 @@ func TestHistorySearchAndFlagFilters(t *testing.T) {
 		}
 	}
 }
+
+// TestSetTranscriptAttachesThroughRecordings: a transcript keyed by a
+// segment's recording path lands on the owning call row, later segments
+// append, the search matches it, and an unknown path is a no-op.
+func TestSetTranscriptAttachesThroughRecordings(t *testing.T) {
+	db := openTestDB(t)
+	bus := events.NewBus(16)
+	defer bus.Close()
+	cl, err := NewCallLog(db, bus, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cl.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go cl.Run(ctx)
+
+	start := time.Now().UTC().Truncate(time.Second)
+	g := trunking.Grant{System: "Metro", Protocol: "p25", GroupID: 1001, FrequencyHz: 1}
+	bus.Publish(events.Event{Kind: events.KindCallStart, Payload: trunking.CallStart{Grant: g, DeviceSerial: "V1", StartedAt: start}})
+	bus.Publish(events.Event{Kind: events.KindCallEnd, Payload: trunking.CallEnd{Grant: g, DeviceSerial: "V1", StartedAt: start, EndedAt: start.Add(5 * time.Second), Reason: trunking.EndReasonNormal}})
+	bus.Publish(events.Event{Kind: events.KindCallComplete, Payload: trunking.CallComplete{Grant: g, DeviceSerial: "V1", StartedAt: start, EndedAt: start.Add(2 * time.Second), AudioPath: "/rec/a.wav", Segment: 0}})
+	bus.Publish(events.Event{Kind: events.KindCallComplete, Payload: trunking.CallComplete{Grant: g, DeviceSerial: "V1", StartedAt: start.Add(3 * time.Second), EndedAt: start.Add(5 * time.Second), AudioPath: "/rec/b.wav", CallStartedAt: start, Segment: 1}})
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		var n int
+		db.sql.QueryRow(`SELECT COUNT(*) FROM call_recordings`).Scan(&n)
+		if n == 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := db.SetTranscript(ctx, "/rec/a.wav", " Engine one responding "); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetTranscript(ctx, "/rec/b.wav", "copy that"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetTranscript(ctx, "/rec/nope.wav", "ghost"); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := db.History(ctx, HistoryFilter{Limit: 5})
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("rows=%d err=%v", len(rows), err)
+	}
+	if rows[0].Transcript != "Engine one responding copy that" {
+		t.Fatalf("transcript = %q", rows[0].Transcript)
+	}
+	if n := len(mustHistory(t, db, HistoryFilter{Query: "responding"})); n != 1 {
+		t.Fatalf("search by transcript word → %d rows", n)
+	}
+	if n := len(mustHistory(t, db, HistoryFilter{Query: "ghost"})); n != 0 {
+		t.Fatalf("unknown-path transcript leaked: %d rows", n)
+	}
+}
+
+func mustHistory(t *testing.T, db *DB, f HistoryFilter) []CallRow {
+	t.Helper()
+	rows, err := db.History(context.Background(), f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rows
+}

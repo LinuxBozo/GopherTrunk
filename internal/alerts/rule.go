@@ -19,6 +19,7 @@ type Rule struct {
 	emergency     bool
 	encrypted     string // "" | "only" | "exclude"
 	toneProfiles  map[string]bool
+	keywords      []string
 	minDuration   time.Duration
 	cooldown      time.Duration
 	Channels      []string
@@ -61,6 +62,11 @@ func NewRule(cfg config.AlertRuleConfig) (*Rule, error) {
 	}
 	for _, p := range cfg.ToneProfiles {
 		r.toneProfiles[strings.ToLower(strings.TrimSpace(p))] = true
+	}
+	for _, k := range cfg.Keywords {
+		if k = strings.ToLower(strings.TrimSpace(k)); k != "" {
+			r.keywords = append(r.keywords, k)
+		}
 	}
 	if strings.TrimSpace(cfg.Message) != "" {
 		t, err := template.New(cfg.Name).Option("missingkey=zero").Parse(cfg.Message)
@@ -114,6 +120,19 @@ func (r *Rule) Matches(e Event) bool {
 	}
 	if r.minDuration > 0 && (e.Kind == "call.end" || e.Kind == "call.complete") && e.Duration < r.minDuration {
 		return false
+	}
+	if len(r.keywords) > 0 {
+		text := strings.ToLower(e.Transcript + " " + e.Alias + " " + e.Detail)
+		hit := false
+		for _, k := range r.keywords {
+			if strings.Contains(text, k) {
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			return false
+		}
 	}
 	return true
 }

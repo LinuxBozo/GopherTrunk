@@ -35,6 +35,7 @@ import (
 	"github.com/MattCheramie/GopherTrunk/internal/scanner/conventional"
 	"github.com/MattCheramie/GopherTrunk/internal/scanner/dmrlcn"
 	"github.com/MattCheramie/GopherTrunk/internal/scanner/widebandt2"
+	"github.com/MattCheramie/GopherTrunk/internal/transcribe"
 
 	adsbbeast "github.com/MattCheramie/GopherTrunk/internal/radio/adsb/beast"
 	adsbppm "github.com/MattCheramie/GopherTrunk/internal/radio/adsb/ppm"
@@ -469,6 +470,7 @@ type Daemon struct {
 	iqAutoRecSub *events.Subscription
 	broadcast    *broadcast.Manager
 	alerts       *alerts.Manager
+	transcriber  *transcribe.Manager
 	grantHooks   []*broadcast.GrantWebhook
 	composer     *composer.Composer
 	player       *player.Player
@@ -1940,6 +1942,15 @@ func NewDaemonWithPath(cfg config.Config, cfgPath string, version string, log *s
 	if err := d.buildStorage(cfg, log); err != nil {
 		return nil, err
 	}
+	// Speech-to-text backend — optional (transcription.enabled). Built after
+	// storage so transcripts can be stored on the call rows; it subscribes to
+	// the bus here, before Run, so no finished recording is missed.
+	if tr, err := buildTranscriber(cfg.Transcription, d.bus, d.db, log); err != nil {
+		return nil, fmt.Errorf("daemon: transcription: %w", err)
+	} else if tr != nil {
+		d.transcriber = tr
+		log.Info("transcription enabled", "url", cfg.Transcription.URL, "model", cfg.Transcription.ModelOrDefault())
+	}
 
 	if err := d.buildAPIServer(cfg, version, log); err != nil {
 		return nil, err
@@ -3083,6 +3094,9 @@ func (d *Daemon) buildAPIServer(cfg config.Config, version string, log *slog.Log
 		if d.alerts != nil {
 			opts.Alerts = d.alerts
 		}
+		if d.transcriber != nil {
+			opts.Transcription = d.transcriber
+		}
 		cfgCopy := cfg
 		opts.Runtime = &runtimeSnapshot{
 			cfg:     &cfgCopy,
@@ -3497,6 +3511,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if d.alerts != nil {
 		d.spawn(runCtx, "alerts", false, func(ctx context.Context) error {
 			return d.alerts.Run(ctx)
+		})
+	}
+	if d.transcriber != nil {
+		d.spawn(runCtx, "transcription", false, func(ctx context.Context) error {
+			return d.transcriber.Run(ctx)
 		})
 	}
 	for _, h := range d.grantHooks {
@@ -4142,6 +4161,9 @@ func (d *Daemon) Close() {
 		}
 		if d.alerts != nil {
 			d.closeStage("alerts", func() { _ = d.alerts.Close() })
+		}
+		if d.transcriber != nil {
+			d.closeStage("transcription", func() { _ = d.transcriber.Close() })
 		}
 		for _, h := range d.grantHooks {
 			d.closeStage("grant-hook", func() { _ = h.Close() })

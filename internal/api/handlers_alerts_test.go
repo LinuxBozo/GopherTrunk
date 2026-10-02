@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/MattCheramie/GopherTrunk/internal/transcribe"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/MattCheramie/GopherTrunk/internal/alerts"
 	"github.com/MattCheramie/GopherTrunk/internal/events"
@@ -77,5 +79,35 @@ func TestAlertsEndpoints(t *testing.T) {
 	r.Body.Close()
 	if r.StatusCode != http.StatusBadGateway || !strings.Contains(e["error"].(string), "nope") {
 		t.Fatalf("test nope: status=%d body=%v", r.StatusCode, e)
+	}
+}
+
+type fakeTranscription struct{}
+
+func (fakeTranscription) Status() transcribe.Status {
+	return transcribe.Status{URL: "http://w/inference", Model: "whisper-1", Sent: 4, Failed: 1, LastText: "copy", MeanLatency: 1500 * time.Millisecond}
+}
+
+// TestTranscriptionStatusEndpoint: configured:false when unwired, counters
+// otherwise.
+func TestTranscriptionStatusEndpoint(t *testing.T) {
+	bus := events.NewBus(8)
+	defer bus.Close()
+	base, teardown := mkServer(t, ServerOptions{Bus: bus})
+	resp := mustGet(t, base+"/api/v1/transcription")
+	var body map[string]any
+	json.NewDecoder(resp.Body).Decode(&body)
+	resp.Body.Close()
+	teardown()
+	if body["configured"] != false {
+		t.Fatalf("unwired: %v", body)
+	}
+	base, teardown = mkServer(t, ServerOptions{Bus: bus, Transcription: fakeTranscription{}})
+	defer teardown()
+	resp = mustGet(t, base+"/api/v1/transcription")
+	defer resp.Body.Close()
+	json.NewDecoder(resp.Body).Decode(&body)
+	if body["configured"] != true || body["sent"].(float64) != 4 || body["mean_latency_ms"].(float64) != 1500 || body["last_text"] != "copy" {
+		t.Fatalf("status: %v", body)
 	}
 }

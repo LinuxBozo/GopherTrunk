@@ -324,6 +324,9 @@ type CallRow struct {
 	// (recording_path is set). The path itself is deliberately not serialised —
 	// the UI plays via GET /api/v1/calls/{id}/audio, not a filesystem path.
 	HasRecording bool `json:"has_recording,omitempty"`
+	// Transcript is the speech-to-text of the call's recording(s) when the
+	// transcription backend produced one.
+	Transcript string `json:"transcript,omitempty"`
 }
 
 // History queries the call_log with the supplied filter, newest-first.
@@ -332,7 +335,7 @@ func (d *DB) History(ctx context.Context, f HistoryFilter) ([]CallRow, error) {
 	             encrypted, algorithm_id, key_id, emergency, data_call, individual, timeslot, priority,
 	             device_serial, started_at, ended_at, duration_ms,
 	             end_reason, talkgroup_alpha, source_alpha, signal_dbfs, evm_pct, snr_db,
-	             recording_path
+	             recording_path, transcript
 	      FROM call_log WHERE 1=1`
 	args := []any{}
 	if f.System != "" {
@@ -372,8 +375,8 @@ func (d *DB) History(ctx context.Context, f HistoryFilter) ([]CallRow, error) {
 	}
 	if t := strings.TrimSpace(f.Query); t != "" {
 		like := "%" + strings.ToLower(t) + "%"
-		q += " AND (LOWER(COALESCE(talkgroup_alpha,'')) LIKE ? OR LOWER(COALESCE(source_alpha,'')) LIKE ? OR LOWER(system) LIKE ? OR LOWER(protocol) LIKE ?"
-		args = append(args, like, like, like, like)
+		q += " AND (LOWER(COALESCE(talkgroup_alpha,'')) LIKE ? OR LOWER(COALESCE(source_alpha,'')) LIKE ? OR LOWER(system) LIKE ? OR LOWER(protocol) LIKE ? OR LOWER(COALESCE(transcript,'')) LIKE ?"
+		args = append(args, like, like, like, like, like)
 		if n, err := strconv.ParseUint(t, 10, 32); err == nil {
 			q += " OR group_id = ? OR source_id = ?"
 			args = append(args, n, n)
@@ -397,18 +400,21 @@ func (d *DB) History(ctx context.Context, f HistoryFilter) ([]CallRow, error) {
 		var endNs sql.NullInt64
 		var durMs sql.NullInt64
 		var reason sql.NullString
-		var alpha, srcAlpha, recPath sql.NullString
+		var alpha, srcAlpha, recPath, transcript sql.NullString
 		var sig, evm, snr sql.NullFloat64
 		var enc, emer, data, indiv, algID, keyID, slot, prio int
 		if err := rows.Scan(
 			&r.ID, &r.System, &r.Protocol, &r.GroupID, &r.SourceID, &r.FrequencyHz,
 			&enc, &algID, &keyID, &emer, &data, &indiv, &slot, &prio, &r.DeviceSerial,
 			&startNs, &endNs, &durMs, &reason, &alpha, &srcAlpha, &sig, &evm, &snr,
-			&recPath,
+			&recPath, &transcript,
 		); err != nil {
 			return nil, err
 		}
 		r.HasRecording = recPath.Valid && recPath.String != ""
+		if transcript.Valid {
+			r.Transcript = transcript.String
+		}
 		r.Encrypted = enc != 0
 		r.AlgorithmID = uint8(algID)
 		r.KeyID = uint16(keyID)
@@ -647,4 +653,25 @@ func boolInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// SetTranscript stores the speech-to-text of one recording file on its call
+// row — matched through call_recordings (every segment) or the legacy
+// recording_path — appending when the call already has text from an
+// earlier segment. A path that belongs to no persisted call is not an error.
+func (d *DB) SetTranscript(ctx context.Context, recordingPath, text string) error {
+	text = strings.TrimSpace(text)
+	if recordingPath == "" || text == "" {
+		return nil
+	}
+	const q = `
+UPDATE call_log
+   SET transcript = CASE WHEN transcript IS NULL OR transcript = '' THEN ? ELSE transcript || ' ' || ? END
+ WHERE id IN (SELECT call_id FROM call_recordings WHERE path = ?)
+    OR recording_path = ?`
+	_, err := d.sql.ExecContext(ctx, q, text, text, recordingPath, recordingPath)
+	if err != nil {
+		return fmt.Errorf("storage: set transcript: %w", err)
+	}
+	return nil
 }

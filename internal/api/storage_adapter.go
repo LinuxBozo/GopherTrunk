@@ -135,6 +135,7 @@ func (s *storageHistory) History(ctx context.Context, f HistoryFilter) ([]CallRo
 			EVMPct:         r.EVMPct,
 			SNRDb:          r.SNRDb,
 			HasRecording:   r.HasRecording,
+			Transcript:     r.Transcript,
 		}
 	}
 	return out, nil

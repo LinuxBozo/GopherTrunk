@@ -27,6 +27,7 @@ type Config struct {
 	Audio          AudioConfig          `yaml:"audio"`
 	Broadcast      BroadcastConfig      `yaml:"broadcast"`
 	Alerts         AlertsConfig         `yaml:"alerts"`
+	Transcription  TranscriptionConfig  `yaml:"transcription"`
 	Baseband       BasebandConfig       `yaml:"baseband"`
 	Paging         PagingConfig         `yaml:"paging"`
 	APRS           APRSConfig           `yaml:"aprs"`

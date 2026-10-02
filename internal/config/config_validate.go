@@ -42,6 +42,7 @@ func sectionValidators() []sectionValidator {
 		{"audio", Config.validateAudio},
 		{"broadcast", Config.validateBroadcast},
 		{"alerts", Config.validateAlerts},
+		{"transcription", Config.validateTranscription},
 		{"baseband", Config.validateBaseband},
 		{"web", Config.validateWeb},
 	}

@@ -57,6 +57,8 @@ type Event struct {
 	ToneHz      []float64 `json:"tone_hz,omitempty"`
 	// Alias is the decoded talker alias on talker.alias.
 	Alias string `json:"alias,omitempty"`
+	// Transcript is the speech-to-text on call.transcript.
+	Transcript string `json:"transcript,omitempty"`
 	// Target is the called / commanded radio on call.alert, unit.ack /
 	// unit.queued / unit.deny, unit.function, unit.monitor and unit.status.
 	Target uint32 `json:"target,omitempty"`
@@ -216,6 +218,12 @@ func Normalize(ev events.Event) (Event, bool) {
 		if !p.At.IsZero() {
 			e.At = p.At
 		}
+	case trunking.CallTranscript:
+		e.System, e.Protocol, e.Talkgroup, e.Source, e.FrequencyHz = p.System, p.Protocol, p.GroupID, p.SourceID, p.FrequencyHz
+		e.Device, e.AudioPath, e.Transcript = p.DeviceSerial, p.AudioPath, p.Text
+		if !p.At.IsZero() {
+			e.At = p.At
+		}
 	case trunking.UnitStatus:
 		e.System, e.Protocol, e.Source, e.Target = p.System, p.Protocol, p.SourceID, p.TargetID
 		e.Detail = fmt.Sprintf("unit status %d, user status %d", p.UnitStatus, p.UserStatus)
@@ -365,6 +373,8 @@ func (e Event) Title() string {
 		return "Radio command"
 	case "unit.monitor":
 		return "Radio monitor"
+	case "call.transcript":
+		return "Transcript"
 	}
 	return strings.ToUpper(e.Kind[:1]) + e.Kind[1:]
 }

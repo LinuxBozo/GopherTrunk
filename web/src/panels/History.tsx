@@ -296,6 +296,19 @@ export function History() {
         headerClassName: "hidden lg:table-cell",
       },
       {
+        key: "transcript",
+        header: "Transcript",
+        render: (r) =>
+          r.transcript ? (
+            <span className="text-xs italic" title={r.transcript}>
+              {r.transcript.length > 80 ? r.transcript.slice(0, 80) + "…" : r.transcript}
+            </span>
+          ) : (
+            <span className="text-muted text-xs">—</span>
+          ),
+        sort: (a, b) => (a.transcript ?? "").localeCompare(b.transcript ?? ""),
+      },
+      {
         // Per-call decode health from the figures the daemon already stamps on
         // the call (SNR / EVM / level). Lets an operator judge a recording's
         // quality without opening a scope.
@@ -391,7 +404,7 @@ export function History() {
           <input
             type="search"
             className="input w-full"
-            placeholder="alias, system, protocol, TG or RID"
+            placeholder="alias, system, protocol, TG, RID or transcript text"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             aria-label="Search calls"
@@ -581,6 +594,9 @@ export function History() {
               value={formatDuration(selected.duration_ms)}
             />
             <DetailField label="End reason" value={selected.end_reason} />
+            {selected.transcript && (
+              <DetailField label="Transcript" value={selected.transcript} />
+            )}
           </div>
           <div className="grid grid-cols-3 gap-3">
             <DetailField

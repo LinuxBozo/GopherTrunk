@@ -85,3 +85,20 @@ type UnitMonitor struct {
 	TxMultiplier uint8     `json:"tx_multiplier"`
 	At           time.Time `json:"at"`
 }
+
+// CallTranscript is the events.KindCallTranscript payload: the speech-to-text
+// of one finished recording (internal/transcribe). Segment / CallStartedAt
+// identify the over within a multi-transmission call.
+type CallTranscript struct {
+	System        string    `json:"system"`
+	Protocol      string    `json:"protocol"`
+	GroupID       uint32    `json:"group_id"`
+	SourceID      uint32    `json:"source_id,omitempty"`
+	FrequencyHz   uint32    `json:"frequency_hz,omitempty"`
+	DeviceSerial  string    `json:"device_serial,omitempty"`
+	CallStartedAt time.Time `json:"call_started_at"`
+	Segment       int       `json:"segment"`
+	AudioPath     string    `json:"audio_path"`
+	Text          string    `json:"text"`
+	At            time.Time `json:"at"`
+}

@@ -98,6 +98,11 @@ type AlertRuleConfig struct {
 	// (system, talkgroup/profile) key within the window, e.g. "30s", "5m".
 	// Empty/0 = fire on every match.
 	Cooldown string `yaml:"cooldown"`
+	// Keywords, when set, fires only when the event's text — a transcript
+	// (call.transcript), a talker alias, a deny reason — contains one of the
+	// words (case-insensitive). The scanner-app "alert me when they say
+	// 'shots fired'" feature, on top of the transcription backend.
+	Keywords []string `yaml:"keywords"`
 	// Channels names the channels to deliver to (required).
 	Channels []string `yaml:"channels"`
 	// Message is an optional Go text/template rendered per event; empty uses
@@ -121,7 +126,7 @@ var AlertRuleEventKinds = []string{
 	"cc.locked", "cc.lost", "affiliation", "registration", "patch",
 	"call.encryption", "talker.alias", "location",
 	"unit.status", "unit.message", "call.alert", "unit.ack", "unit.queued",
-	"unit.deny", "unit.function", "unit.monitor",
+	"unit.deny", "unit.function", "unit.monitor", "call.transcript",
 }
 
 // NormalizedType returns the lower-cased, trimmed channel type.
@@ -285,12 +290,12 @@ func (c Config) validateAlerts() []error {
 		if r.AttachAudio {
 			ok := false
 			for _, k := range r.EventKinds() {
-				if k == "call.complete" {
+				if k == "call.complete" || k == "call.transcript" {
 					ok = true
 				}
 			}
 			if !ok {
-				errs = append(errs, fmt.Errorf("alerts.rules[%d] (%s): attach_audio needs on: [call.complete] (the only event with a finished recording)", i, label))
+				errs = append(errs, fmt.Errorf("alerts.rules[%d] (%s): attach_audio needs on: [call.complete] or [call.transcript] (the events that carry a finished recording)", i, label))
 			}
 		}
 	}

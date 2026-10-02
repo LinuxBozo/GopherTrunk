@@ -428,7 +428,7 @@ func writeCallHistoryCSV(w http.ResponseWriter, rows []CallRow) {
 		"group_id", "talkgroup_alpha", "source_id", "source_alpha", "frequency_hz",
 		"timeslot", "individual", "encrypted", "algorithm_id", "key_id", "emergency",
 		"data_call", "priority", "end_reason", "device_serial", "signal_dbfs",
-		"evm_pct", "snr_db", "has_recording",
+		"evm_pct", "snr_db", "has_recording", "transcript",
 	})
 	f := func(v *float64) string {
 		if v == nil {
@@ -463,7 +463,7 @@ func writeCallHistoryCSV(w http.ResponseWriter, rows []CallRow) {
 			strconv.Itoa(int(r.Timeslot)), b(r.Individual), b(r.Encrypted), alg,
 			strconv.Itoa(int(r.KeyID)), b(r.Emergency), b(r.DataCall),
 			strconv.Itoa(int(r.Priority)), r.EndReason, r.DeviceSerial,
-			f(r.SignalDbFS), f(r.EVMPct), f(r.SNRDb), b(r.HasRecording),
+			f(r.SignalDbFS), f(r.EVMPct), f(r.SNRDb), b(r.HasRecording), r.Transcript,
 		})
 	}
 	cw.Flush()

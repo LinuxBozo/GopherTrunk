@@ -120,7 +120,10 @@ Passthrough kinds include: `sdr.attached`, `sdr.detached`, `cc.locked`,
 `unit.request`, `dmr.grant.observed`, `dmr.bandplan.learned`, and the P25
 unit-signalling kinds `unit.status`, `unit.message`, `call.alert`,
 `unit.ack`, `unit.queued`, `unit.deny`, `unit.function`, `unit.monitor`
-(snake_case payloads, see below).
+(snake_case payloads, see below), and `call.transcript` (the transcription
+backend's text for a finished recording: `system`, `protocol`, `group_id`,
+`source_id`, `frequency_hz`, `device_serial`, `call_started_at`, `segment`,
+`audio_path`, `text`, `at`).
 
 The in-call passthrough kinds `call.source`, `call.talker`, `call.release` and
 `call.segment` now carry snake_case field names matching the grant DTO

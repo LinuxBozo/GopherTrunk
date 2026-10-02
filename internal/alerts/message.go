@@ -33,7 +33,7 @@ func (r *Rule) Render(e Event) Notification {
 	} else {
 		n.Text = defaultMessage(e)
 	}
-	if r.attachAudio && e.Kind == "call.complete" {
+	if r.attachAudio && (e.Kind == "call.complete" || e.Kind == "call.transcript") {
 		n.AudioPath = e.AudioPath
 	}
 	return n
@@ -129,6 +129,14 @@ func defaultMessage(e Event) string {
 		}
 	case "unit.monitor":
 		add(fmt.Sprintf("radio %d opened by %s", e.Target, e.SourceLabel()))
+	case "call.transcript":
+		if tl := e.TalkgroupLabel(); tl != "" {
+			add("TG " + tl)
+		}
+		if sl := e.SourceLabel(); sl != "" {
+			add("from " + sl)
+		}
+		add("“" + e.Transcript + "”")
 	default:
 		add(e.Kind)
 	}
