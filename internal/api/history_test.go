@@ -1,11 +1,11 @@
 package api
 
 import (
-	"strings"
-	"encoding/csv"
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 

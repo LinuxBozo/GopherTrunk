@@ -93,6 +93,14 @@ func EventToDTO(ev events.Event) EventDTO { return eventToDTO(ev) }
 // payload is mapped to a JSON-friendly DTO when the kind is recognised;
 // otherwise the raw payload is passed through (useful for debugging
 // future event kinds before the API is updated).
+// EventJSON renders a bus event exactly as the SSE / WebSocket streams do
+// ({kind, timestamp, payload} with the api package's DTO mapping and the
+// non-finite-float scrub), so other sinks — the alerts MQTT mirror — carry
+// the same JSON the web UI consumes.
+func EventJSON(ev events.Event) ([]byte, error) {
+	return json.Marshal(eventToDTO(ev))
+}
+
 func eventToDTO(ev events.Event) EventDTO {
 	dto := EventDTO{Kind: string(ev.Kind), Timestamp: ev.Timestamp}
 	switch p := ev.Payload.(type) {

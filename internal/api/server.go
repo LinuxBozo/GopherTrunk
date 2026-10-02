@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/MattCheramie/GopherTrunk/internal/alerts"
 	gtdiag "github.com/MattCheramie/GopherTrunk/internal/diag"
 	"github.com/MattCheramie/GopherTrunk/internal/events"
 	"github.com/MattCheramie/GopherTrunk/internal/sdr"
@@ -32,6 +33,14 @@ type EngineSnapshot interface {
 	// IsKnownRadio reports whether id has been observed as a subscriber radio,
 	// used to filter a phantom auto-discovered talkgroup out of the list.
 	IsKnownRadio(id uint32) bool
+}
+
+// AlertsProvider is the alerts subsystem's read side plus the channel
+// test hook (internal/alerts.Manager). Optional; when nil GET
+// /api/v1/alerts reports the subsystem as not configured.
+type AlertsProvider interface {
+	Status() alerts.Status
+	Test(ctx context.Context, channel string) error
 }
 
 // PatchProvider exposes the engine's active patch / supergroup table
@@ -308,6 +317,7 @@ type Server struct {
 	locations    LocationQuery
 	affiliations AffiliationProvider
 	patches      PatchProvider
+	alerts       AlertsProvider
 	sites        SitesProvider
 	grants       GrantsProvider
 	metrics      http.Handler
@@ -750,6 +760,8 @@ type ServerOptions struct {
 	// Locations is optional. When non-nil the server exposes
 	// GET /api/v1/locations for the web map.
 	Locations LocationQuery
+	// Alerts is optional: the alert-rule manager's status + channel test.
+	Alerts AlertsProvider
 	// Patches is optional. When non-nil GET /api/v1/patches serves the
 	// live patch/supergroup table (P25 Motorola/Harris regroups).
 	Patches PatchProvider
@@ -1094,6 +1106,7 @@ func NewServer(opts ServerOptions) (*Server, error) {
 		locations:      opts.Locations,
 		affiliations:   opts.Affiliations,
 		patches:        opts.Patches,
+		alerts:         opts.Alerts,
 		sites:          opts.Sites,
 		grants:         opts.Grants,
 		metrics:        opts.MetricsHandler,
@@ -1288,6 +1301,8 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/v1/locations", s.handleLocations)
 	mux.HandleFunc("GET /api/v1/affiliations", s.handleAffiliations)
 	mux.HandleFunc("GET /api/v1/patches", s.handlePatches)
+	mux.HandleFunc("GET /api/v1/alerts", s.handleAlertsStatus)
+	mux.HandleFunc("POST /api/v1/alerts/test/{channel}", s.gate(s.handleAlertsTest))
 	mux.HandleFunc("GET /api/v1/grants", s.handleGrants)
 	mux.HandleFunc("GET /api/v1/sites", s.handleListSites)
 	mux.HandleFunc("GET /api/v1/rids", s.handleListRIDs)

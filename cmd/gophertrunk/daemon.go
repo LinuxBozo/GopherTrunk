@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/MattCheramie/GopherTrunk/internal/alerts"
 	"github.com/MattCheramie/GopherTrunk/internal/api"
 	"github.com/MattCheramie/GopherTrunk/internal/api/rigctld"
 	"github.com/MattCheramie/GopherTrunk/internal/autotune"
@@ -467,6 +468,7 @@ type Daemon struct {
 	iqAutoRec    *iqAutoRecorder
 	iqAutoRecSub *events.Subscription
 	broadcast    *broadcast.Manager
+	alerts       *alerts.Manager
 	grantHooks   []*broadcast.GrantWebhook
 	composer     *composer.Composer
 	player       *player.Player
@@ -2274,6 +2276,19 @@ func (d *Daemon) buildOutboundFeeds(cfg config.Config, log *slog.Logger, dispLoc
 			log.Info("grant webhook sinks enabled", "count", len(hooks))
 		}
 	}
+
+	// Alert rules + notification channels — optional. Built only when at
+	// least one rule is enabled.
+	{
+		mgr, err := buildAlertsManager(cfg.Alerts, d.bus, log)
+		if err != nil {
+			return fmt.Errorf("daemon: alerts: %w", err)
+		}
+		if mgr != nil {
+			d.alerts = mgr
+			log.Info("alert rules enabled", "rules", mgr.Rules(), "channels", mgr.Channels())
+		}
+	}
 	return nil
 }
 
@@ -3062,6 +3077,9 @@ func (d *Daemon) buildAPIServer(cfg config.Config, version string, log *slog.Log
 		if d.broadcast != nil {
 			opts.Broadcast = broadcastStatus{d.broadcast}
 		}
+		if d.alerts != nil {
+			opts.Alerts = d.alerts
+		}
 		cfgCopy := cfg
 		opts.Runtime = &runtimeSnapshot{
 			cfg:     &cfgCopy,
@@ -3471,6 +3489,11 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if d.broadcast != nil {
 		d.spawn(runCtx, "broadcast", false, func(ctx context.Context) error {
 			return d.broadcast.Run(ctx)
+		})
+	}
+	if d.alerts != nil {
+		d.spawn(runCtx, "alerts", false, func(ctx context.Context) error {
+			return d.alerts.Run(ctx)
 		})
 	}
 	for _, h := range d.grantHooks {
@@ -4113,6 +4136,9 @@ func (d *Daemon) Close() {
 		}
 		if d.broadcast != nil {
 			d.closeStage("broadcast", func() { _ = d.broadcast.Close() })
+		}
+		if d.alerts != nil {
+			d.closeStage("alerts", func() { _ = d.alerts.Close() })
 		}
 		for _, h := range d.grantHooks {
 			d.closeStage("grant-hook", func() { _ = h.Close() })

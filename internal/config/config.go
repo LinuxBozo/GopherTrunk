@@ -26,6 +26,7 @@ type Config struct {
 	Scanner        ScannerConfig        `yaml:"scanner"`
 	Audio          AudioConfig          `yaml:"audio"`
 	Broadcast      BroadcastConfig      `yaml:"broadcast"`
+	Alerts         AlertsConfig         `yaml:"alerts"`
 	Baseband       BasebandConfig       `yaml:"baseband"`
 	Paging         PagingConfig         `yaml:"paging"`
 	APRS           APRSConfig           `yaml:"aprs"`

@@ -386,6 +386,40 @@ export interface ToneOutConfig {
   Profiles: ToneProfileConfig[] | null;
 }
 
+export interface AlertChannelConfig {
+  Name: string;
+  Type: string;
+  URL: string;
+  Token: string;
+  User: string;
+  Password: string;
+  Priority: number;
+  Topic: string;
+  MirrorEvents: boolean;
+  Command: string;
+  Timeout: string;
+}
+export interface AlertRuleConfig {
+  Name: string;
+  Disabled: boolean;
+  On: string[] | null;
+  Systems: string[] | null;
+  Talkgroups: number[] | null;
+  Radios: number[] | null;
+  Emergency: boolean;
+  Encrypted: string;
+  ToneProfiles: string[] | null;
+  MinDurationMs: number;
+  Cooldown: string;
+  Channels: string[] | null;
+  Message: string;
+  AttachAudio: boolean;
+}
+export interface AlertsConfig {
+  Channels: AlertChannelConfig[] | null;
+  Rules: AlertRuleConfig[] | null;
+}
+
 export interface BroadcastifyFeed {
   Enabled: boolean;
   Name: string;
@@ -568,6 +602,7 @@ export interface GTConfig {
   Scanner: ScannerConfig;
   Audio: AudioConfig;
   Broadcast: BroadcastConfig;
+  Alerts: AlertsConfig;
   Baseband: BasebandConfig;
   Paging: PagingConfig;
   APRS: APRSConfig;
