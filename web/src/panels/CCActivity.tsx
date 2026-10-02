@@ -25,6 +25,14 @@ const CC_KINDS: Record<string, string> = {
   "affiliation": "Affiliation",
   "registration": "Registration",
   "unit.request": "Unit→Unit",
+  "unit.status": "Status",
+  "unit.message": "Message",
+  "call.alert": "Call alert",
+  "unit.ack": "Ack",
+  "unit.queued": "Queued",
+  "unit.deny": "Deny",
+  "unit.function": "Radio cmd",
+  "unit.monitor": "Radio monitor",
   "patch": "Patch",
   "talker.alias": "Talker alias",
   "cc.locked": "CC locked",
@@ -276,6 +284,77 @@ function renderRow(
           {src ? ridLink(src) : "?"}
           {" → "}
           {target ? ridLink(target) : "?"}
+        </>
+      );
+      return { ts: ev.timestamp, kind: ev.kind, label, system, details, raw: ev.payload };
+    }
+    case "unit.status": {
+      const system = str(payload.system);
+      const src = num(payload.source_id);
+      const details = (
+        <>
+          {"radio "}
+          {src ? ridLink(src) : "?"}
+          {` · unit ${num(payload.unit_status)} · user ${num(payload.user_status)}`}
+        </>
+      );
+      return { ts: ev.timestamp, kind: ev.kind, label, system, details, raw: ev.payload };
+    }
+    case "unit.message": {
+      const system = str(payload.system);
+      const src = num(payload.source_id);
+      const msg = num(payload.message);
+      const details = (
+        <>
+          {"radio "}
+          {src ? ridLink(src) : "?"}
+          {` → TG ${num(payload.group_id)} · msg 0x${msg.toString(16).toUpperCase().padStart(4, "0")}`}
+        </>
+      );
+      return { ts: ev.timestamp, kind: ev.kind, label, system, details, raw: ev.payload };
+    }
+    case "call.alert":
+    case "unit.monitor": {
+      const system = str(payload.system);
+      const src = num(payload.source_id);
+      const target = num(payload.target_id);
+      const details = (
+        <>
+          {src ? ridLink(src) : "?"}
+          {ev.kind === "call.alert" ? " paged " : " monitors "}
+          {target ? ridLink(target) : "?"}
+        </>
+      );
+      return { ts: ev.timestamp, kind: ev.kind, label, system, details, raw: ev.payload };
+    }
+    case "unit.ack":
+    case "unit.queued":
+    case "unit.deny": {
+      const system = str(payload.system);
+      const target = num(payload.target_id);
+      const service = str(payload.service_name);
+      const reason = str(payload.reason_name);
+      const details = (
+        <>
+          {"radio "}
+          {target ? ridLink(target) : "?"}
+          {service ? ` · ${service}` : ""}
+          {reason ? ` · ${reason}` : ""}
+        </>
+      );
+      return { ts: ev.timestamp, kind: ev.kind, label, system, details, raw: ev.payload };
+    }
+    case "unit.function": {
+      const system = str(payload.system);
+      const target = num(payload.target_id);
+      const src = num(payload.source_id);
+      const fn = str(payload.function_name);
+      const details = (
+        <>
+          {fn || "function"}
+          {" → "}
+          {target ? ridLink(target) : "?"}
+          {src ? <> {" from "}{ridLink(src)}</> : null}
         </>
       );
       return { ts: ev.timestamp, kind: ev.kind, label, system, details, raw: ev.payload };

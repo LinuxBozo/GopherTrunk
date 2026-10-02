@@ -292,6 +292,10 @@ function summarizeEvent(ev: EventDTO): string {
   if (typeof tg === "number") parts.push(`TG ${tg}`);
   const src = o.source_id ?? o.source ?? o.radio_id ?? g.source_id ?? g.SourceID;
   if (typeof src === "number" && src !== 0) parts.push(`← ${src}`);
+  const target = o.target_id;
+  if (typeof target === "number" && target !== 0) parts.push(`→ ${target}`);
+  const detail = o.reason_name ?? o.function_name;
+  if (typeof detail === "string" && detail) parts.push(detail);
   const sys = o.system ?? g.system ?? g.System;
   if (typeof sys === "string" && sys) parts.push(sys);
   const freq =

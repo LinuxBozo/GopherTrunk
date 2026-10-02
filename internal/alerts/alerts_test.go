@@ -692,3 +692,35 @@ func TestConfigValidation(t *testing.T) {
 		}
 	}
 }
+
+// TestNormalizeUnitSignalling: the P25 unit-signalling kinds map onto the
+// common fields with a kind-specific Detail, and get a default message.
+func TestNormalizeUnitSignalling(t *testing.T) {
+	at := time.Unix(1700000000, 0)
+	cases := []struct {
+		ev    events.Event
+		title string
+		want  string
+	}{
+		{events.Event{Kind: events.KindUnitDeny, Payload: trunking.UnitResponse{System: "S", Response: "deny", TargetID: 7, ServiceName: "GRP_V_CH_GRANT", ReasonName: "site access denial", At: at}}, "DENIED", "site access denial"},
+		{events.Event{Kind: events.KindUnitFunction, Payload: trunking.UnitFunction{System: "S", FunctionName: "radio inhibit", TargetID: 8, SourceID: 1, At: at}}, "Radio INHIBIT", "radio inhibit → radio 8"},
+		{events.Event{Kind: events.KindCallAlert, Payload: trunking.CallAlert{System: "S", SourceID: 1, TargetID: 2, At: at}}, "Call alert", "paged radio 2"},
+		{events.Event{Kind: events.KindUnitStatus, Payload: trunking.UnitStatus{System: "S", SourceID: 3, UnitStatus: 1, UserStatus: 2, At: at}}, "Unit status", "unit status 1, user status 2"},
+		{events.Event{Kind: events.KindUnitMessage, Payload: trunking.UnitMessage{System: "S", SourceID: 3, GroupID: 9, Message: 0xBEEF, At: at}}, "Unit message", "0xBEEF"},
+		{events.Event{Kind: events.KindUnitMonitor, Payload: trunking.UnitMonitor{System: "S", SourceID: 3, TargetID: 4, At: at}}, "Radio monitor", "radio 4 opened"},
+	}
+	for _, c := range cases {
+		e, ok := Normalize(c.ev)
+		if !ok {
+			t.Errorf("%s not normalised", c.ev.Kind)
+			continue
+		}
+		if e.Title() != c.title || !strings.Contains(defaultMessage(e), c.want) || !e.At.Equal(at) {
+			t.Errorf("%s: title=%q msg=%q", c.ev.Kind, e.Title(), defaultMessage(e))
+		}
+		r, _ := NewRule(config.AlertRuleConfig{Name: "r", On: []string{string(c.ev.Kind)}, Channels: []string{"c"}})
+		if !r.Matches(e) {
+			t.Errorf("%s: rule on its kind did not match", c.ev.Kind)
+		}
+	}
+}

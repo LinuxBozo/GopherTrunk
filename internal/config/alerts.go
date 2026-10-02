@@ -71,8 +71,10 @@ type AlertRuleConfig struct {
 	// On lists the event kinds the rule watches: call.start, call.end,
 	// call.complete (a finished recording — the only kind that can attach
 	// audio), grant, tone.alert, cc.locked, cc.lost, affiliation,
-	// registration, patch, call.encryption, talker.alias, location.
-	// Empty = call.start.
+	// registration, patch, call.encryption, talker.alias, location, and
+	// the P25 unit signalling unit.status, unit.message, call.alert,
+	// unit.ack, unit.queued, unit.deny, unit.function (radio check /
+	// inhibit), unit.monitor. Empty = call.start.
 	On []string `yaml:"on"`
 	// Systems restricts to these trunking-system names (empty = any).
 	Systems []string `yaml:"systems"`
@@ -118,6 +120,8 @@ var AlertRuleEventKinds = []string{
 	"call.start", "call.end", "call.complete", "grant", "tone.alert",
 	"cc.locked", "cc.lost", "affiliation", "registration", "patch",
 	"call.encryption", "talker.alias", "location",
+	"unit.status", "unit.message", "call.alert", "unit.ack", "unit.queued",
+	"unit.deny", "unit.function", "unit.monitor",
 }
 
 // NormalizedType returns the lower-cased, trimmed channel type.

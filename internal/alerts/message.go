@@ -114,6 +114,21 @@ func defaultMessage(e Event) string {
 		add(fmt.Sprintf("radio %d is %q", e.Source, e.Alias))
 	case "location":
 		add(fmt.Sprintf("radio %s at %.5f, %.5f", e.SourceLabel(), e.Latitude, e.Longitude))
+	case "unit.status":
+		add(fmt.Sprintf("radio %s: %s", e.SourceLabel(), e.Detail))
+	case "unit.message":
+		add(fmt.Sprintf("radio %s to TG %s: %s", e.SourceLabel(), e.TalkgroupLabel(), e.Detail))
+	case "call.alert":
+		add(fmt.Sprintf("radio %s paged radio %d", e.SourceLabel(), e.Target))
+	case "unit.ack", "unit.queued", "unit.deny":
+		add(fmt.Sprintf("radio %d — %s", e.Target, e.Detail))
+	case "unit.function":
+		add(fmt.Sprintf("%s → radio %d", e.Detail, e.Target))
+		if e.Source != 0 {
+			add("from " + e.SourceLabel())
+		}
+	case "unit.monitor":
+		add(fmt.Sprintf("radio %d opened by %s", e.Target, e.SourceLabel()))
 	default:
 		add(e.Kind)
 	}

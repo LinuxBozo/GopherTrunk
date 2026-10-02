@@ -1672,6 +1672,22 @@ func (c *ControlChannel) dispatchTSBK(t TSBK, nac uint16, metric int) {
 		}, nac)
 	case OpUnitToUnitAnswerRequest:
 		c.publishUnitToUnitRequest(ParseUnitToUnitAnswerRequest(t.Payload), nac)
+	case OpStatusUpdate:
+		c.publishUnitStatus(ParseStatusUpdate(t.Payload), nac)
+	case OpMessageUpdate:
+		c.publishUnitMessage(ParseMessageUpdate(t.Payload), nac)
+	case OpCallAlert:
+		c.publishCallAlert(ParseCallAlert(t.Payload), nac)
+	case OpAcknowledgeResponse:
+		c.publishAcknowledge(ParseAcknowledgeResponse(t.Payload), nac)
+	case OpQueuedResponse:
+		c.publishServiceResponse(events.KindUnitQueued, "queued", ParseServiceResponse(t.Payload), nac)
+	case OpDenyResponse:
+		c.publishServiceResponse(events.KindUnitDeny, "deny", ParseServiceResponse(t.Payload), nac)
+	case OpExtendedFunctionCommand:
+		c.publishExtendedFunction(ParseExtendedFunctionCommand(t.Payload), nac)
+	case OpRadioUnitMonitor:
+		c.publishRadioMonitor(ParseRadioUnitMonitorCommand(t.Payload), nac)
 	case OpTelephoneInterconnectGrant:
 		g := ParseTelephoneInterconnectGrant(t.Payload)
 		c.publishVoiceGrant(voiceGrant{
@@ -2339,6 +2355,100 @@ func (c *ControlChannel) publishUnitToUnitRequest(u UnitToUnitAnswerRequest, nac
 	c.log.Debug("p25: unit-to-unit answer request",
 		"system", c.systemName, "nac", nac,
 		"src", u.SourceID, "target", u.TargetID)
+}
+
+// publishUnitStatus publishes a radio's status update (opcode 0x18).
+func (c *ControlChannel) publishUnitStatus(u StatusUpdate, nac uint16) {
+	c.bus.Publish(events.Event{Kind: events.KindUnitStatus, Payload: trunking.UnitStatus{
+		System: c.systemName, Protocol: "p25", SourceID: u.SourceID, TargetID: u.TargetID,
+		UnitStatus: u.UnitStatus, UserStatus: u.UserStatus, At: c.now(),
+	}})
+	c.log.Debug("p25: status update", "system", c.systemName, "nac", nac,
+		"src", u.SourceID, "target", u.TargetID, "unit_status", u.UnitStatus, "user_status", u.UserStatus)
+}
+
+// publishUnitMessage publishes a short data message (opcode 0x1C).
+func (c *ControlChannel) publishUnitMessage(m MessageUpdate, nac uint16) {
+	c.bus.Publish(events.Event{Kind: events.KindUnitMessage, Payload: trunking.UnitMessage{
+		System: c.systemName, Protocol: "p25", SourceID: m.SourceID, GroupID: m.TargetID,
+		Message: m.Message, At: c.now(),
+	}})
+	c.log.Debug("p25: message update", "system", c.systemName, "nac", nac,
+		"src", m.SourceID, "tg", m.TargetID, "message", fmt.Sprintf("0x%04X", m.Message))
+}
+
+// publishCallAlert publishes a call alert / page (opcode 0x1F).
+func (c *ControlChannel) publishCallAlert(a CallAlert, nac uint16) {
+	c.bus.Publish(events.Event{Kind: events.KindCallAlert, Payload: trunking.CallAlert{
+		System: c.systemName, Protocol: "p25", SourceID: a.SourceID, TargetID: a.TargetID, At: c.now(),
+	}})
+	c.log.Debug("p25: call alert", "system", c.systemName, "nac", nac, "src", a.SourceID, "target", a.TargetID)
+}
+
+// publishAcknowledge publishes the site's acknowledge response (opcode 0x20).
+func (c *ControlChannel) publishAcknowledge(a AcknowledgeResponse, nac uint16) {
+	r := trunking.UnitResponse{
+		System: c.systemName, Protocol: "p25", Response: "ack", TargetID: a.TargetID,
+		ServiceType: uint8(a.ServiceType), ServiceName: a.ServiceType.String(), At: c.now(),
+	}
+	if a.Extended && a.AdditionalInfoValid {
+		r.WACN, r.SystemID = a.WACN, a.SystemID
+	} else if a.AdditionalInfoValid {
+		r.SourceID = a.SourceID
+	}
+	c.bus.Publish(events.Event{Kind: events.KindUnitAck, Payload: r})
+	c.log.Debug("p25: acknowledge response", "system", c.systemName, "nac", nac,
+		"target", a.TargetID, "service", a.ServiceType, "src", r.SourceID, "wacn", r.WACN, "sysid", r.SystemID)
+}
+
+// publishServiceResponse publishes a queued (0x21) or deny (0x27) response.
+func (c *ControlChannel) publishServiceResponse(kind events.Kind, label string, sr ServiceResponse, nac uint16) {
+	r := trunking.UnitResponse{
+		System: c.systemName, Protocol: "p25", Response: label, TargetID: sr.TargetID,
+		ServiceType: uint8(sr.ServiceType), ServiceName: sr.ServiceType.String(),
+		Reason: sr.Reason, At: c.now(),
+	}
+	if label == "deny" {
+		r.ReasonName = DenyReasonName(sr.Reason)
+	} else {
+		r.ReasonName = QueuedReasonName(sr.Reason)
+	}
+	if sr.AdditionalInfoValid {
+		r.AdditionalHx = fmt.Sprintf("%06X", sr.AdditionalInfo)
+	}
+	c.bus.Publish(events.Event{Kind: kind, Payload: r})
+	c.log.Debug("p25: "+label+" response", "system", c.systemName, "nac", nac,
+		"target", sr.TargetID, "service", sr.ServiceType, "reason", r.ReasonName)
+}
+
+// publishExtendedFunction publishes an extended-function command (0x24).
+func (c *ControlChannel) publishExtendedFunction(e ExtendedFunctionCommand, nac uint16) {
+	f := trunking.UnitFunction{
+		System: c.systemName, Protocol: "p25", Function: e.Function, FunctionName: ExtendedFunctionName(e.Function),
+		Arguments: e.Arguments, TargetID: e.TargetID, At: c.now(),
+	}
+	// For the radio-control functions the argument field is the commanding
+	// unit's address (TIA-102.AABC; SDRTrunk renders it as "FROM RADIO").
+	if e.Function < 0x0200 {
+		f.SourceID = e.Arguments
+	}
+	c.bus.Publish(events.Event{Kind: events.KindUnitFunction, Payload: f})
+	logf := c.log.Debug
+	if e.Function == ExtFnRadioInhibit || e.Function == ExtFnRadioUninhibit {
+		logf = c.log.Info // an inhibit is rare and operationally significant
+	}
+	logf("p25: extended function", "system", c.systemName, "nac", nac,
+		"function", f.FunctionName, "target", e.TargetID, "args", fmt.Sprintf("%06X", e.Arguments))
+}
+
+// publishRadioMonitor publishes a radio-unit-monitor command (0x1D).
+func (c *ControlChannel) publishRadioMonitor(m RadioUnitMonitorCommand, nac uint16) {
+	c.bus.Publish(events.Event{Kind: events.KindUnitMonitor, Payload: trunking.UnitMonitor{
+		System: c.systemName, Protocol: "p25", SourceID: m.SourceID, TargetID: m.TargetID,
+		TxMultiplier: m.TxMultiplier, At: c.now(),
+	}})
+	c.log.Info("p25: radio unit monitor command", "system", c.systemName, "nac", nac,
+		"src", m.SourceID, "target", m.TargetID, "tx_multiplier", m.TxMultiplier)
 }
 
 // MarkLost publishes a CCLost event for the current frequency and resets

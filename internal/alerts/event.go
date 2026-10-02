@@ -57,6 +57,12 @@ type Event struct {
 	ToneHz      []float64 `json:"tone_hz,omitempty"`
 	// Alias is the decoded talker alias on talker.alias.
 	Alias string `json:"alias,omitempty"`
+	// Target is the called / commanded radio on call.alert, unit.ack /
+	// unit.queued / unit.deny, unit.function, unit.monitor and unit.status.
+	Target uint32 `json:"target,omitempty"`
+	// Detail is the kind-specific text: a deny / queued reason, an
+	// extended-function name, a status or message value.
+	Detail string `json:"detail,omitempty"`
 	// Latitude / Longitude are set on location.
 	Latitude  float64 `json:"latitude,omitempty"`
 	Longitude float64 `json:"longitude,omitempty"`
@@ -210,6 +216,44 @@ func Normalize(ev events.Event) (Event, bool) {
 		if !p.At.IsZero() {
 			e.At = p.At
 		}
+	case trunking.UnitStatus:
+		e.System, e.Protocol, e.Source, e.Target = p.System, p.Protocol, p.SourceID, p.TargetID
+		e.Detail = fmt.Sprintf("unit status %d, user status %d", p.UnitStatus, p.UserStatus)
+		if !p.At.IsZero() {
+			e.At = p.At
+		}
+	case trunking.UnitMessage:
+		e.System, e.Protocol, e.Source, e.Talkgroup = p.System, p.Protocol, p.SourceID, p.GroupID
+		e.Detail = fmt.Sprintf("message 0x%04X", p.Message)
+		if !p.At.IsZero() {
+			e.At = p.At
+		}
+	case trunking.CallAlert:
+		e.System, e.Protocol, e.Source, e.Target = p.System, p.Protocol, p.SourceID, p.TargetID
+		if !p.At.IsZero() {
+			e.At = p.At
+		}
+	case trunking.UnitResponse:
+		e.System, e.Protocol, e.Source, e.Target = p.System, p.Protocol, p.SourceID, p.TargetID
+		e.Detail = p.ServiceName
+		if p.ReasonName != "" {
+			e.Detail += ": " + p.ReasonName
+		}
+		if !p.At.IsZero() {
+			e.At = p.At
+		}
+	case trunking.UnitFunction:
+		e.System, e.Protocol, e.Source, e.Target = p.System, p.Protocol, p.SourceID, p.TargetID
+		e.Detail = p.FunctionName
+		if !p.At.IsZero() {
+			e.At = p.At
+		}
+	case trunking.UnitMonitor:
+		e.System, e.Protocol, e.Source, e.Target = p.System, p.Protocol, p.SourceID, p.TargetID
+		e.Detail = "remote monitor"
+		if !p.At.IsZero() {
+			e.At = p.At
+		}
 	default:
 		switch ev.Kind {
 		case events.KindCCLocked, events.KindCCLost:
@@ -302,6 +346,25 @@ func (e Event) Title() string {
 		return "Talker alias"
 	case "location":
 		return "Location"
+	case "unit.status":
+		return "Unit status"
+	case "unit.message":
+		return "Unit message"
+	case "call.alert":
+		return "Call alert"
+	case "unit.ack":
+		return "Acknowledged"
+	case "unit.queued":
+		return "Queued"
+	case "unit.deny":
+		return "DENIED"
+	case "unit.function":
+		if strings.Contains(e.Detail, "inhibit") {
+			return "Radio INHIBIT"
+		}
+		return "Radio command"
+	case "unit.monitor":
+		return "Radio monitor"
 	}
 	return strings.ToUpper(e.Kind[:1]) + e.Kind[1:]
 }
