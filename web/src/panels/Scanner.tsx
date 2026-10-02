@@ -131,6 +131,53 @@ export function Scanner() {
         }
       />
 
+      {(scanner.hold || (scanner.avoids ?? []).length > 0) && (
+        <Card title="Hold & avoid">
+          <div className="space-y-2 text-xs">
+            {scanner.hold && (
+              <div className="flex items-center gap-2">
+                <Badge tone="warn">HOLD</Badge>
+                <span>
+                  following only TG{" "}
+                  <span className="font-mono text-accent">{scanner.hold.talkgroup}</span>
+                  {scanner.hold.system ? ` on ${scanner.hold.system}` : ""} since{" "}
+                  {formatLocalDateTime(scanner.hold.since)}
+                </span>
+                {canMutate && (
+                  <Button
+                    variant="ghost"
+                    className="text-xs"
+                    onClick={() => wrap("release_hold", () => writes.releaseHold(cfg))}
+                  >
+                    release
+                  </Button>
+                )}
+              </div>
+            )}
+            {(scanner.avoids ?? []).map((a) => (
+              <div key={`${a.system ?? ""}:${a.talkgroup}`} className="flex items-center gap-2">
+                <Badge tone="err">AVOID</Badge>
+                <span>
+                  TG <span className="font-mono">{a.talkgroup}</span>
+                  {a.system ? ` on ${a.system}` : ""} until {formatLocalDateTime(a.until)}
+                </span>
+                {canMutate && (
+                  <Button
+                    variant="ghost"
+                    className="text-xs"
+                    onClick={() =>
+                      wrap("unavoid", () => writes.unavoidTalkgroup(cfg, a.talkgroup, a.system))
+                    }
+                  >
+                    clear
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
       <Hunt
         systems={scanner.systems ?? []}
         canMutate={canMutate}

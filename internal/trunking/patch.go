@@ -11,10 +11,14 @@ import (
 // IS the members' traffic — "following" a patch means attributing the
 // call to every member, not retuning.
 type PatchGroup struct {
-	SuperGroup uint32
-	Members    []uint32
-	Vendor     string // "motorola" | "harris"
-	UpdatedAt  time.Time
+	// System is the trunking system that announced the patch ("" for a
+	// registry fed before systems were stamped).
+	System     string    `json:"system,omitempty"`
+	Protocol   string    `json:"protocol,omitempty"`
+	SuperGroup uint32    `json:"super_group"`
+	Members    []uint32  `json:"members"`
+	Vendor     string    `json:"vendor"` // "motorola" | "harris"
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // Patch is the events.KindPatch payload — a patch add or cancel a

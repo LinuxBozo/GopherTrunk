@@ -94,6 +94,26 @@ const (
 	KindAffiliation       Kind = "affiliation"
 	KindUnitRegistration  Kind = "registration"
 	KindUnitToUnitRequest Kind = "unit.request"
+	// Unit signalling (P25 TSBKs beyond grants, trunking/unitsignal.go):
+	//   KindUnitStatus   STS_UPDT  — a radio's unit / user status
+	//   KindUnitMessage  MSG_UPDT  — a 16-bit short message to a talkgroup
+	//   KindCallAlert    CALL_ALRT — a page from one radio to another
+	//   KindUnitAck / KindUnitQueued / KindUnitDeny — the site's answer to a
+	//     radio's request (trunking.UnitResponse; deny / queued carry a reason)
+	//   KindUnitFunction EXT_FNCT_CMD — radio check / inhibit / uninhibit /
+	//     detach (+ acks), group regroup create / cancel
+	//   KindUnitMonitor  RAD_MON_CMD — remote monitor (radio ordered to key)
+	KindUnitStatus   Kind = "unit.status"
+	KindUnitMessage  Kind = "unit.message"
+	KindCallAlert    Kind = "call.alert"
+	KindUnitAck      Kind = "unit.ack"
+	KindUnitQueued   Kind = "unit.queued"
+	KindUnitDeny     Kind = "unit.deny"
+	KindUnitFunction Kind = "unit.function"
+	KindUnitMonitor  Kind = "unit.monitor"
+	// KindCallTranscript fires when the transcription backend has the text
+	// of a finished recording (trunking.CallTranscript).
+	KindCallTranscript Kind = "call.transcript"
 	// KindAudioState fires when an operator changes the live-audio
 	// cockpit — volume, mute, or recording-gate. The payload is the
 	// new state (the same shape as GET /api/v1/audio). Subscribers

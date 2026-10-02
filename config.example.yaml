@@ -229,6 +229,13 @@ recordings:
                          # NOTE: true also suppresses the completed-call
                          # broadcast backends (webhook/rdioscanner) for
                          # encrypted calls — keep false to deliver them.
+  mute_encrypted: false  # record + stream SILENCE for an encrypted call no
+                         # configured encryption_keys entry decrypts (what a
+                         # hardware scanner / SDRTrunk / DSD-FME do) instead of
+                         # the vocoder's rendering of the ciphertext. The
+                         # .raw/.imb/.amb sidecars keep the ciphertext and the
+                         # call is logged / uploaded as before. A call decrypted
+                         # in-process (key configured) is never muted.
   unvoiced_gain: 0     # vocoder unvoiced (fricative) band level vs a voiced harmonic of the same
                        # amplitude. 0 = default 5.49 (mbelib / DSD level; the old GopherTrunk
                        # scaling sat 6-15 dB below it = muffled, consonant-less speech);
@@ -1314,6 +1321,12 @@ trunking:
   #       - key_id: 1                   # the KID the LDU2 Encryption Sync names
   #         algorithm: adp              # P25 ADP = RC4
   #         key: "1234567890"           # 40-bit key, hex
+  #       - key_id: 2
+  #         algorithm: aes              # P25 AES-256 (ALGID 0x84); 32 hex digits = AES-128
+  #         key: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+  #       - key_id: 3
+  #         algorithm: des              # P25 DES-OFB (ALGID 0x81)
+  #         key: "0123456789abcdef"
 
 # Police-scanner subsystems:
 #   - scan_mode controls the engine's per-grant gate. "all" follows every
@@ -1600,6 +1613,96 @@ broadcast:
   #     url: "https://example.org/gophertrunk/grants"
   #     auth_header: "Bearer YOUR_TOKEN"   # sent verbatim as Authorization; omit to disable
   #     systems: ["Metro P25"]             # empty = every system
+
+# Alert rules + notification channels. A RULE watches bus events (a
+# talkgroup keying up, an emergency, an encrypted call, a tone-out match, a
+# control channel lost, …) under conditions, with a cooldown, and delivers
+# through named CHANNELS — the custom alerts a hardware scanner offers, pushed
+# to your phone or chat instead of a beep. Each channel type takes the fields
+# the service needs:
+#   discord / slack  url (incoming webhook)
+#   ntfy             url (topic URL), token or user+password, priority 1-5
+#   pushover         token (application), user (user key), priority -2..2
+#   telegram         token (bot), user (chat id)
+#   gotify           url (server), token (application), priority 0-10
+#   webhook          url, token (sent as Authorization: Bearer)
+#   exec             command (alert JSON on stdin + GT_ALERT_* env)
+#   mqtt             url (tcp://host:1883 | ssl://host:8883), user/password,
+#                    topic prefix (default gophertrunk → <prefix>/alerts/<rule>),
+#                    mirror_events: true to also publish EVERY bus event to
+#                    <prefix>/events/<kind> (Home Assistant / Node-RED feed)
+# Rules: on (event kinds; default call.start), systems, talkgroups, radios,
+# emergency, encrypted (""|only|exclude), tone_profiles, min_duration_ms,
+# cooldown, channels, message (Go template), attach_audio (call.complete only:
+# attaches the recording on discord/telegram/webhook). Test a channel with
+# POST /api/v1/alerts/test/<name>; GET /api/v1/alerts shows counters and the
+# recent firings. See docs/alerts.md.
+# alerts:
+#   channels:
+#     - name: "ops-discord"
+#       type: discord
+#       url: "https://discord.com/api/webhooks/…"
+#     - name: "phone"
+#       type: ntfy
+#       url: "https://ntfy.sh/my-scanner-topic"
+#       priority: 4
+#     - name: "home-assistant"
+#       type: mqtt
+#       url: "tcp://192.168.1.10:1883"
+#       user: "gophertrunk"
+#       password: "…"
+#       topic: "gophertrunk"
+#       mirror_events: true
+#   rules:
+#     - name: "Fire dispatch"
+#       on: [call.start]
+#       systems: ["Example-P25"]
+#       talkgroups: [1001, 1002]
+#       cooldown: 30s
+#       channels: [ops-discord, phone]
+#     - name: "Any emergency"
+#       on: [call.start, grant]
+#       emergency: true
+#       channels: [phone]
+#       message: "EMERGENCY on {{.System}} TG {{.TalkgroupAlpha}} ({{.Talkgroup}}) from {{.Source}}"
+#     - name: "Station 1 tone-out"
+#       on: [tone.alert]
+#       tone_profiles: ["station-1-engine"]
+#       channels: [phone, ops-discord]
+#     - name: "Dispatch recordings to Discord"
+#       on: [call.complete]
+#       talkgroups: [1001]
+#       min_duration_ms: 1500
+#       attach_audio: true
+#       channels: [ops-discord]
+#     - name: "Control channel lost"
+#       on: [cc.lost]
+#       channels: [phone]
+
+# Speech-to-text for finished recordings. Each recording is POSTed to an
+# OpenAI-compatible transcription endpoint (OpenAI's /v1/audio/transcriptions,
+# a local whisper.cpp `server` at /inference, faster-whisper / Speaches,
+# LocalAI — all take the same multipart `file` + `model` and answer
+# {"text": …}); the text is stored on the call (History shows it, the `q`
+# search matches it, GET /api/v1/calls/history?format=csv exports it),
+# published as the `call.transcript` event, and alert rules can watch it
+# with `keywords:` ("alert me when they say 'shots fired'"). GopherTrunk never
+# runs a model itself. GET /api/v1/transcription shows counters.
+# transcription:
+#   enabled: true
+#   url: "http://127.0.0.1:8080/inference"      # whisper.cpp server, or
+#   # url: "https://api.openai.com/v1/audio/transcriptions"
+#   # api_key: "sk-…"                           # Bearer token (hosted APIs)
+#   model: "whisper-1"                          # ignored by local servers
+#   language: "en"                              # empty = auto-detect
+#   prompt: "Engine 1, Medic 7, Main Street"    # vocabulary hint (optional)
+#   systems: ["Example-P25"]                    # empty = every system
+#   # talkgroups: [1001, 1002]
+#   min_duration_ms: 1000                       # skip squelch tails
+#   workers: 1
+#   timeout: 60s
+#   upload_format: wav16k                       # wav16k (default) | original
+#   skip_encrypted: true
 
 # Baseband (IQ) recording and offline replay. `record` taps a tuner and
 # writes IQ to a two-channel 16-bit WAV (the same layout SDRtrunk/SDR++ use);

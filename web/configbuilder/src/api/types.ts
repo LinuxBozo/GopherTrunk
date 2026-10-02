@@ -207,6 +207,7 @@ export interface RecordingsConfig {
   WriteRaw: boolean;
   MBEFiles?: boolean;
   SkipEncrypted: boolean;
+  MuteEncrypted: boolean;
   Equalizer: EqualizerConfig;
   Normalize: NormalizeConfig;
   WarmDMRAudio?: boolean;
@@ -384,6 +385,56 @@ export interface ToneProfileConfig {
 }
 export interface ToneOutConfig {
   Profiles: ToneProfileConfig[] | null;
+}
+
+export interface AlertChannelConfig {
+  Name: string;
+  Type: string;
+  URL: string;
+  Token: string;
+  User: string;
+  Password: string;
+  Priority: number;
+  Topic: string;
+  MirrorEvents: boolean;
+  Command: string;
+  Timeout: string;
+}
+export interface AlertRuleConfig {
+  Name: string;
+  Disabled: boolean;
+  On: string[] | null;
+  Systems: string[] | null;
+  Talkgroups: number[] | null;
+  Radios: number[] | null;
+  Emergency: boolean;
+  Encrypted: string;
+  ToneProfiles: string[] | null;
+  MinDurationMs: number;
+  Cooldown: string;
+  Keywords: string[] | null;
+  Channels: string[] | null;
+  Message: string;
+  AttachAudio: boolean;
+}
+export interface TranscriptionConfig {
+  Enabled: boolean;
+  URL: string;
+  APIKey: string;
+  Model: string;
+  Language: string;
+  Prompt: string;
+  Systems: string[] | null;
+  Talkgroups: number[] | null;
+  MinDurationMs: number;
+  Workers: number;
+  Timeout: string;
+  UploadFormat: string;
+  SkipEncrypted: boolean | null;
+}
+export interface AlertsConfig {
+  Channels: AlertChannelConfig[] | null;
+  Rules: AlertRuleConfig[] | null;
 }
 
 export interface BroadcastifyFeed {
@@ -568,6 +619,8 @@ export interface GTConfig {
   Scanner: ScannerConfig;
   Audio: AudioConfig;
   Broadcast: BroadcastConfig;
+  Alerts: AlertsConfig;
+  Transcription: TranscriptionConfig;
   Baseband: BasebandConfig;
   Paging: PagingConfig;
   APRS: APRSConfig;

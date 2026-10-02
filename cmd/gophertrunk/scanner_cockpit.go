@@ -29,6 +29,10 @@ func (c scannerCockpit) Status() api.ScannerStatus {
 	}
 	if c.engine != nil {
 		st.ScanMode = c.engine.ScanMode().String()
+		if h, ok := c.engine.Held(); ok {
+			st.Hold = &h
+		}
+		st.Avoids = c.engine.Avoids()
 	}
 	if c.cchunt != nil {
 		for _, ss := range c.cchunt.Snapshot() {

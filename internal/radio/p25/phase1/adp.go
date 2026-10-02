@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/MattCheramie/GopherTrunk/internal/cryptolab/engine/p25crypto"
-	"github.com/MattCheramie/GopherTrunk/internal/voice/imbe"
 )
 
 // P25 ADP ("Advanced Digital Privacy", ALGID 0xAA — RC4) known-key
@@ -56,77 +55,38 @@ const (
 	// ADPSuperframeKeystreamBytes is the keystream one superframe consumes
 	// after the warm-up — the length ADPSuperframeKeystream returns.
 	ADPSuperframeKeystreamBytes = adpSuperframeKeystreamBytes - adpKeystreamDrop
-	// adpLDU1VoiceBase / adpLDU2VoiceBase are the absolute keystream
-	// offsets of voice subframe u0 in LDU1 and LDU2.
-	adpLDU1VoiceBase = 267
-	adpLDU2VoiceBase = 368
-	// adpLSDSkip is the keystream the Low Speed Data word consumes between
-	// u7 and u8.
-	adpLSDSkip = 2
 )
 
 // ADPVoiceFrameOffset returns the absolute keystream offset (counting the
 // 256 discarded warm-up bytes, as OP25 does) of voice subframe `subframe`
 // of an LDU of type duid. ok is false for a non-voice DUID or an
-// out-of-range subframe.
+// out-of-range subframe. It is VoiceFrameOffset for ALGID 0xAA.
 func ADPVoiceFrameOffset(duid DUID, subframe int) (off int, ok bool) {
-	if subframe < 0 || subframe >= LDUVoiceSubframeCount {
-		return 0, false
-	}
-	switch duid {
-	case DUIDLogicalLink1:
-		off = adpLDU1VoiceBase
-	case DUIDLogicalLink2:
-		off = adpLDU2VoiceBase
-	default:
-		return 0, false
-	}
-	off += imbe.FrameBytes * subframe
-	if subframe == LDUVoiceSubframeCount-1 {
-		off += adpLSDSkip
-	}
-	return off, true
+	return VoiceFrameOffset(p25crypto.AlgADP, duid, subframe)
 }
 
 // ADPSuperframeKeystream returns the keystream one superframe (LDU1 + LDU2)
 // scrambled under mi consumes, warm-up already discarded: index it with
 // ADPVoiceFrameOffset(…) − 256, or hand it to ADPDescrambleVoiceFrames.
+// It is VoiceSuperframeKeystream for ALGID 0xAA.
 func ADPSuperframeKeystream(key []byte, mi [9]byte) ([]byte, error) {
 	if len(key) != ADPKeyBytes {
 		return nil, fmt.Errorf("p25/phase1: ADP key must be %d bytes, got %d", ADPKeyBytes, len(key))
 	}
-	return p25crypto.Keystream(p25crypto.AlgADP, key, mi[:ADPMIBytes], ADPSuperframeKeystreamBytes)
+	return VoiceSuperframeKeystream(p25crypto.AlgADP, key, mi)
 }
 
 // ADPDescrambleVoiceFrames XORs the nine FEC-decoded 11-byte IMBE frames of
 // an LDU of type duid, in place, with their slots of ks (as returned by
 // ADPSuperframeKeystream for the superframe's MI). A nil frame — one whose
 // FEC failed — is skipped but still keeps its keystream slot, so the rest
-// stay aligned. Returns the number of frames descrambled.
+// stay aligned. Returns the number of frames descrambled. It is
+// DescrambleVoiceFrames for ALGID 0xAA.
 func ADPDescrambleVoiceFrames(ks []byte, duid DUID, frames *[LDUVoiceSubframeCount][]byte) (int, error) {
 	if len(ks) < ADPSuperframeKeystreamBytes {
 		return 0, fmt.Errorf("p25/phase1: ADP keystream is %d bytes, need %d", len(ks), ADPSuperframeKeystreamBytes)
 	}
-	if duid != DUIDLogicalLink1 && duid != DUIDLogicalLink2 {
-		return 0, fmt.Errorf("p25/phase1: ADP descramble of a %v (not a voice LDU)", duid)
-	}
-	n := 0
-	for i := range frames {
-		f := frames[i]
-		if f == nil {
-			continue
-		}
-		if len(f) != imbe.FrameBytes {
-			return n, fmt.Errorf("p25/phase1: ADP voice subframe %d is %d bytes, want %d", i, len(f), imbe.FrameBytes)
-		}
-		off, _ := ADPVoiceFrameOffset(duid, i)
-		off -= adpKeystreamDrop
-		for j := range f {
-			f[j] ^= ks[off+j]
-		}
-		n++
-	}
-	return n, nil
+	return DescrambleVoiceFrames(p25crypto.AlgADP, ks, duid, frames)
 }
 
 // AdvanceMI returns the Message Indicator of the superframe that follows

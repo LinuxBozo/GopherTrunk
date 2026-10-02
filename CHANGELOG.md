@@ -8,6 +8,49 @@ for tagged releases.
 ## [Unreleased]
 
 ### Added
+- **Competitive feature assessment + the gap series it drove.** `docs/competitive-feature-assessment.md`
+  catalogs SDRTrunk, Trunk Recorder, OP25, DSD-FME / dsd-neo, DSDPlus, Unitrunker,
+  Uniden / Whistler scanner firmware, the call-sharing ecosystem and general SDR apps
+  across scanning, trunking, audio, recording and encryption, maps GopherTrunk's gaps
+  and lists what is still open with its blocker. The items below closed the tractable gaps.
+- **P25 DES-OFB, Triple-DES and AES-128/256 voice decryption with operator keys.**
+  `encryption_keys` accepts `algorithm: des | tdes | aes` (the key length selects the
+  variant); the Phase 1 voice chain descrambles with OP25's on-air layout (one cipher
+  block discarded, then ADP's frame mapping) and the TIA LFSR MI→IV expansion. Reference-
+  pinned, not capture-pinned — a DES/AES capture through `TestP25ADPReplay` is the gate.
+- **`recordings.mute_encrypted`** records and streams silence for an encrypted call no
+  configured key decrypts (what every hardware scanner, SDRTrunk, trunk-recorder and
+  DSD-FME do) instead of the vocoder's rendering of ciphertext; sidecars keep the
+  ciphertext, the call is logged / uploaded as before, `muted_frames` is logged.
+- **Alerts (`alerts:`).** Rules watch bus events (call.start / end / complete, grant,
+  tone.alert, cc.locked / lost, affiliation, registration, patch, call.encryption,
+  talker.alias, location, the new unit-signalling kinds, call.transcript) filtered by
+  system / talkgroup / radio / emergency / encrypted / tone profile / duration / keywords
+  with a cooldown and an optional Go-template message, and deliver to **Discord, Slack,
+  ntfy, Pushover, Telegram, Gotify, a generic webhook, a local command or an MQTT broker**
+  (dependency-free MQTT 3.1.1 publisher; `mirror_events: true` publishes every bus event
+  to `<prefix>/events/<kind>`). Recordings attach on Discord / Telegram / webhook.
+  `GET /api/v1/alerts`, `POST /api/v1/alerts/test/{channel}`. See docs/alerts.md.
+- **Talkgroup hold and timed avoid.** `POST/DELETE /api/v1/scanner/hold` pins following to
+  one talkgroup; `POST/DELETE /api/v1/talkgroups/{id}/avoid` locks one out for a duration
+  (default 30 min). Emergency grants still pass; a held talkgroup bypasses list mode.
+  Shown / controlled on the Scanner and Talkgroups panels.
+- **P25 unit signalling decoded into events:** `unit.status`, `unit.message`, `call.alert`,
+  `unit.ack`, `unit.queued`, `unit.deny` (with the TIA reason tables), `unit.function`
+  (radio check / inhibit / uninhibit / detach + acks, regroup) and `unit.monitor`, from
+  TSBKs 0x18 / 0x1C / 0x1F / 0x20 / 0x21 / 0x27 / 0x24 / 0x1D, layouts pinned against
+  SDRTrunk's field positions. CC Activity rows, Dashboard summaries, alertable.
+- **Transcription (`transcription:`).** Finished recordings are converted to 16 kHz WAV and
+  posted to any OpenAI-compatible Whisper endpoint (OpenAI, whisper.cpp server,
+  faster-whisper / Speaches, LocalAI); the text is stored on the call, shown in History,
+  matched by the search, exported in the CSV, published as `call.transcript` and usable
+  as alert `keywords`. `GET /api/v1/transcription`. See docs/transcription.md.
+- **Call history search and export.** `GET /api/v1/calls/history` gains `q` (alias /
+  system / protocol / transcript substring, exact TG / RID when numeric), `protocol`,
+  `encrypted=` / `emergency=` and `format=csv`; the History panel gains a search box,
+  from / to range, flag select and a CSV export; rows carry `priority`.
+- **Playback speed** (0.75–2×, remembered) on the recording player.
+- **`GET /api/v1/patches`** serves the live patch / supergroup table (with system + protocol).
 - **ACARS decoding on conventional-scanner AM channels (#1231).** A
   `scanner.conventional` entry with `mode: am` and `decoders: [acars]`
   decodes the VHF air-band aircraft data link (131.550 / 131.525 /
@@ -22,6 +65,11 @@ for tagged releases.
   live scanner run. See docs/acars.md.
 
 ### Fixed
+- **Retention now sweeps the per-call sidecars** (`.json`, `.imb`, `.amb`, `.mp3`) with the
+  audio they describe; they used to outlive it and pile up.
+- **The per-call JSON sidecar carries `algorithm_id` / `key_id`** on encrypted calls.
+- **The cryptolab AES keystream used a left-justified MI as the IV**; it is now the TIA
+  LFSR expansion (MI ‖ LFSR64(MI)) OP25 and DSD-FME use on air.
 - **RadioReference sites CSVs (`trs_sites_<id>.csv`) now import (#849).**
   The importer used to reject them, first with an opaque "data at line 1
   before any # Section marker" error and later with a "can't import

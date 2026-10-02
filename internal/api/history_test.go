@@ -2,8 +2,10 @@ package api
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -356,4 +358,143 @@ func TestCallHistoryEndpointFiltersBySourceID(t *testing.T) {
 			t.Errorf("row source_id = %d, want 1005492", r.SourceID)
 		}
 	}
+}
+
+// TestCallHistoryEndpointSearchAndCSVExport: ?q= searches aliases and
+// ?format=csv renders the same rows as a CSV download with the stable header.
+func TestCallHistoryEndpointSearchAndCSVExport(t *testing.T) {
+	bus := events.NewBus(8)
+	defer bus.Close()
+	dbPath := filepath.Join(t.TempDir(), "calls.db")
+	db, err := storage.Open(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	cl, err := storage.NewCallLog(db, bus, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cl.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go cl.Run(ctx)
+
+	startedAt := time.Now().UTC().Truncate(time.Microsecond)
+	for i, tg := range []struct {
+		id    uint32
+		alpha string
+		enc   bool
+	}{{7777, "FIRE-DISP", false}, {8888, "PD-TAC", true}} {
+		bus.Publish(events.Event{
+			Kind: events.KindCallStart,
+			Payload: trunking.CallStart{
+				Grant: trunking.Grant{
+					System: "Alpha", Protocol: "p25",
+					GroupID: tg.id, FrequencyHz: 851_000_000, Encrypted: tg.enc,
+					AlgorithmID: algIf(tg.enc, 0x84), KeyID: uint16(algIf(tg.enc, 3)),
+				},
+				Talkgroup:    &trunking.TalkGroup{ID: tg.id, AlphaTag: tg.alpha},
+				DeviceSerial: "VOICE-" + string(rune('1'+i)),
+				StartedAt:    startedAt.Add(time.Duration(i) * time.Second),
+			},
+		})
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		rows, _ := db.History(context.Background(), storage.HistoryFilter{Limit: 10})
+		if len(rows) == 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	base, teardown := mkServer(t, ServerOptions{Bus: bus, History: HistoryFromStorage(db)})
+	defer teardown()
+
+	resp := mustGet(t, base+"/api/v1/calls/history?q=fire")
+	var body struct {
+		Calls []CallRow `json:"calls"`
+	}
+	json.NewDecoder(resp.Body).Decode(&body)
+	resp.Body.Close()
+	if len(body.Calls) != 1 || body.Calls[0].GroupID != 7777 {
+		t.Fatalf("q=fire → %+v", body.Calls)
+	}
+	resp = mustGet(t, base+"/api/v1/calls/history?encrypted=true")
+	json.NewDecoder(resp.Body).Decode(&body)
+	resp.Body.Close()
+	if len(body.Calls) != 1 || body.Calls[0].GroupID != 8888 {
+		t.Fatalf("encrypted=true → %+v", body.Calls)
+	}
+	resp = mustGet(t, base+"/api/v1/calls/history?encrypted=maybe")
+	resp.Body.Close()
+	if resp.StatusCode != 400 {
+		t.Fatalf("encrypted=maybe status = %d, want 400", resp.StatusCode)
+	}
+
+	resp = mustGet(t, base+"/api/v1/calls/history?format=csv")
+	defer resp.Body.Close()
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/csv") {
+		t.Fatalf("content-type = %q", ct)
+	}
+	if cd := resp.Header.Get("Content-Disposition"); !strings.Contains(cd, "attachment") {
+		t.Fatalf("content-disposition = %q", cd)
+	}
+	recs, err := csv.NewReader(resp.Body).ReadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != 3 {
+		t.Fatalf("csv rows = %d (incl. header), want 3", len(recs))
+	}
+	if recs[0][0] != "id" || recs[0][7] != "talkgroup_alpha" || recs[0][13] != "encrypted" || recs[0][14] != "algorithm_id" {
+		t.Fatalf("header = %v", recs[0])
+	}
+	// newest first: the encrypted PD-TAC row leads.
+	if recs[1][7] != "PD-TAC" || recs[1][13] != "1" || recs[1][14] != "0x84" || recs[1][15] != "3" {
+		t.Fatalf("row 1 = %v", recs[1])
+	}
+	if recs[2][7] != "FIRE-DISP" || recs[2][13] != "0" || recs[2][14] != "" {
+		t.Fatalf("row 2 = %v", recs[2])
+	}
+}
+
+type fakePatches struct{ p []trunking.PatchGroup }
+
+func (f fakePatches) Patches() []trunking.PatchGroup { return f.p }
+
+// TestPatchesEndpoint: GET /api/v1/patches serves the engine's live patch
+// table (sorted by system, supergroup) and an empty list when unwired.
+func TestPatchesEndpoint(t *testing.T) {
+	bus := events.NewBus(8)
+	defer bus.Close()
+	base, teardown := mkServer(t, ServerOptions{Bus: bus})
+	resp := mustGet(t, base+"/api/v1/patches")
+	var body struct {
+		Patches []trunking.PatchGroup `json:"patches"`
+	}
+	json.NewDecoder(resp.Body).Decode(&body)
+	resp.Body.Close()
+	teardown()
+	if body.Patches == nil || len(body.Patches) != 0 {
+		t.Fatalf("unwired patches = %v", body.Patches)
+	}
+	base, teardown = mkServer(t, ServerOptions{Bus: bus, Patches: fakePatches{p: []trunking.PatchGroup{
+		{System: "Metro", SuperGroup: 65000, Members: []uint32{101, 102}, Vendor: "motorola"},
+		{System: "County", SuperGroup: 64000, Members: []uint32{7}, Vendor: "harris"},
+	}}})
+	defer teardown()
+	resp = mustGet(t, base+"/api/v1/patches")
+	defer resp.Body.Close()
+	json.NewDecoder(resp.Body).Decode(&body)
+	if len(body.Patches) != 2 || body.Patches[0].System != "County" || body.Patches[1].SuperGroup != 65000 || len(body.Patches[1].Members) != 2 {
+		t.Fatalf("patches = %+v", body.Patches)
+	}
+}
+
+func algIf(cond bool, v uint8) uint8 {
+	if cond {
+		return v
+	}
+	return 0
 }

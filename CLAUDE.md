@@ -746,6 +746,41 @@ confirmation before any close-as-completed.
   shows nothing" report; same silent-mismatch family as the History `r.rows` lesson). Still
   passthrough kinds (docs/api-events.md notes the rename); `summarizeEvent` also descends into a
   nested `grant`/`Grant` object for call.start/end/complete.
+- **Competitive gap series (Oct 2026) — the subsystems it added and the rules they
+  follow** (`docs/competitive-feature-assessment.md` is the catalog + open-gap list):
+  - **P25 OFB-family decryption** (`phase1/voicecrypt.go`): DES-OFB / TDES / AES share
+    ADP's frame mapping with a one-block discard (8 / 16 bytes vs RC4's 256); the AES IV
+    is `MI ‖ LFSR64(MI)` (`p25crypto.ExpandMI`, = OP25 `expand_mi_to_128`), NOT a
+    left-justified MI (the cryptolab had that wrong). Reference-pinned, no GT capture yet —
+    `TestP25ADPReplay` with a DES/AES key is the on-air gate. `encryption_keys.algorithm`
+    normalises to `rc4 | des | tdes | aes`; the key LENGTH picks the variant and the chain
+    refuses a key whose length disagrees with the ES's ALGID rather than guessing.
+  - **`recordings.mute_encrypted`** mutes PCM only (WAV + live tap); `.raw/.imb/.amb` keep
+    ciphertext. "Decryptable" is decided by `RecorderOptions.KeyConfigured` (daemon builds
+    it from `encryption_keys`; key id 0 = any key on the system), never by whether the
+    composer actually decrypted — keep it that way or a failed decrypt would mute speech.
+  - **Alerts** (`internal/alerts`): rules × channels; channels are plain HTTP except `exec`
+    (argv split on whitespace, JSON on stdin + `GT_ALERT_*`) and `mqtt` (a 150-line QoS-0
+    MQTT 3.1.1 publisher — do NOT add a client dependency for it). Delivery runs on a
+    bounded queue; a dead destination must never block the bus. New bus kinds need: an
+    `alerts.Normalize` case, a `defaultMessage` case, `config.AlertRuleEventKinds`, and a
+    CC Activity label if operator-facing.
+  - **Hold / avoid** (`trunking/holdavoid.go`) sit in `HandleGrant` after Lockout and
+    before the scan-list gate; emergency bypasses both; a held TG bypasses list mode;
+    neither persists (a restart clears them like a scanner power cycle — deliberate).
+  - **P25 unit signalling** (`phase1/opcodes_unit.go`): parsers are pinned by LITERAL
+    vectors built from SDRTrunk's bit indexes with an encoder independent of the
+    `Assemble*` inverses (`tsbkBits` in the test) — keep new TSBK parsers to that pattern.
+  - **Transcription** (`internal/transcribe`): one OpenAI-shaped multipart client covers
+    OpenAI / whisper.cpp / faster-whisper / LocalAI; uploads 16 kHz mono WAV by default
+    (whisper.cpp refuses anything else). Transcripts attach to call rows THROUGH
+    `call_recordings` by path (segments append) — the recorder's `CallComplete.AudioPath`
+    is the key, so never rename a recording between CallComplete and the store.
+  - **Adding a config section** touches: `config.Config`, `sectionValidators()`,
+    `configbuilder/fieldmeta.go` (every field needs Help — `TestFieldHelpCoverage`),
+    `configbuilder/sections.go`, `web/configbuilder/src/api/types.ts` (every field —
+    `TestConfigSchemaCoveredByWebBuilder`), a `web/configbuilder/src/sections/*.tsx` +
+    `index.tsx` entry, `config.example.yaml`, and a `docs/*.md` with `nav_group: Reference`.
 - **Every config key must appear in config.example.yaml when it lands** — `diversity_capture_format`
   shipped in code but was missed there, and an operator guessing the key name at their rig is the
   failure mode (4 Sep report). When adding a `Config` field, grep config.example.yaml before

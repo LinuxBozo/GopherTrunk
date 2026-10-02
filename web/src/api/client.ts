@@ -140,6 +140,38 @@ export function joinURL(base: string, path: string): string {
   return `${b}/${p}`;
 }
 
+
+// HistoryQueryOpts mirrors the daemon's /api/v1/calls/history filters.
+export type HistoryQueryOpts = {
+  limit?: number;
+  system?: string;
+  group_id?: number;
+  source_id?: number;
+  // Free-text search: alias / system / protocol substring, or an exact
+  // talkgroup / RID when numeric.
+  q?: string;
+  since?: string; // RFC3339
+  until?: string; // RFC3339
+  encrypted?: boolean;
+  emergency?: boolean;
+  protocol?: string;
+};
+
+function historyQuery(opts: HistoryQueryOpts): URLSearchParams {
+  const q = new URLSearchParams();
+  if (opts.limit != null) q.set("limit", String(opts.limit));
+  if (opts.system) q.set("system", opts.system);
+  if (opts.group_id != null) q.set("group_id", String(opts.group_id));
+  if (opts.source_id != null) q.set("source_id", String(opts.source_id));
+  if (opts.q) q.set("q", opts.q);
+  if (opts.since) q.set("since", opts.since);
+  if (opts.until) q.set("until", opts.until);
+  if (opts.encrypted != null) q.set("encrypted", String(opts.encrypted));
+  if (opts.emergency != null) q.set("emergency", String(opts.emergency));
+  if (opts.protocol) q.set("protocol", opts.protocol);
+  return q;
+}
+
 export const api = {
   health: (c: ClientConfig) => request<Health>(c, "GET", "/api/v1/health"),
   version: (c: ClientConfig) => request<Version>(c, "GET", "/api/v1/version"),
@@ -209,28 +241,27 @@ export const api = {
       `/api/v1/locations${qs ? `?${qs}` : ""}`,
     ).then((r) => r.locations ?? []);
   },
-  history: (
-    c: ClientConfig,
-    opts: {
-      limit?: number;
-      system?: string;
-      group_id?: number;
-      // Filter to calls FROM one radio (call_log.source_id) — the per-RID
-      // view of the call log, so recordings can be found by who was talking.
-      source_id?: number;
-    } = {},
-  ) => {
-    const q = new URLSearchParams();
-    if (opts.limit != null) q.set("limit", String(opts.limit));
-    if (opts.system) q.set("system", opts.system);
-    if (opts.group_id != null) q.set("group_id", String(opts.group_id));
-    if (opts.source_id != null) q.set("source_id", String(opts.source_id));
-    const qs = q.toString();
+  history: (c: ClientConfig, opts: HistoryQueryOpts) => {
+    const qs = historyQuery(opts).toString();
     return request<{ calls: CallRow[] }>(
       c,
       "GET",
       `/api/v1/calls/history${qs ? `?${qs}` : ""}`,
     ).then((r) => r.calls ?? []);
+  },
+  // historyCSV downloads the same filtered history as a CSV file. It has to
+  // go through fetch (not a bare <a href>) so the bearer token rides along.
+  historyCSV: async (c: ClientConfig, opts: HistoryQueryOpts): Promise<Blob> => {
+    const q = historyQuery(opts);
+    q.set("format", "csv");
+    const headers: Record<string, string> = {};
+    if (c.token) headers["Authorization"] = `Bearer ${c.token}`;
+    const res = await fetch(`${c.baseURL}/api/v1/calls/history?${q.toString()}`, {
+      headers,
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error(`history export failed: HTTP ${res.status}`);
+    return res.blob();
   },
   devices: (c: ClientConfig) =>
     request<{ devices: DeviceDTO[] }>(c, "GET", "/api/v1/devices").then(

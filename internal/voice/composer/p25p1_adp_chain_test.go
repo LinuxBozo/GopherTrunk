@@ -31,6 +31,14 @@ func p25InfoBitsFromFrame(frame []byte) []byte {
 // holds the CLEAR packed frames in transmission order.
 func buildP25P1ADPStream(t *testing.T, key []byte, keyID uint16, mi0 [9]byte, superframes int) (dibits []uint8, want [][]byte) {
 	t.Helper()
+	return buildP25P1EncryptedStream(t, p25.AlgorithmADP, key, keyID, mi0, superframes)
+}
+
+// buildP25P1EncryptedStream is buildP25P1ADPStream for any algorithm the
+// phase1 voice path descrambles (DES-OFB, TDES, AES-128/256 share ADP's
+// frame layout with their own discard, see phase1/voicecrypt.go).
+func buildP25P1EncryptedStream(t *testing.T, algID uint8, key []byte, keyID uint16, mi0 [9]byte, superframes int) (dibits []uint8, want [][]byte) {
+	t.Helper()
 	// A longer lead-in than the clear-voice builders use, so the receiver
 	// has locked before the FIRST LDU1 — that LDU1 is the one the chain
 	// must hold until its superframe's ES arrives, and losing it to
@@ -42,7 +50,7 @@ func buildP25P1ADPStream(t *testing.T, key []byte, keyID uint16, mi0 [9]byte, su
 	seed := 0
 	mi := mi0
 	for k := 0; k < superframes; k++ {
-		ks, err := phase1.ADPSuperframeKeystream(key, mi)
+		ks, err := phase1.VoiceSuperframeKeystream(algID, key, mi)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -62,7 +70,7 @@ func buildP25P1ADPStream(t *testing.T, key []byte, keyID uint16, mi0 [9]byte, su
 			for s := range scrambled {
 				scrambled[s] = append([]byte(nil), clear[s]...)
 			}
-			if _, err := phase1.ADPDescrambleVoiceFrames(ks, duid, &scrambled); err != nil {
+			if _, err := phase1.DescrambleVoiceFrames(algID, ks, duid, &scrambled); err != nil {
 				t.Fatal(err)
 			}
 			var voice [phase1.LDUVoiceSubframeCount][]byte
@@ -76,7 +84,7 @@ func buildP25P1ADPStream(t *testing.T, key []byte, keyID uint16, mi0 [9]byte, su
 			var lces [phase1.LDULCESBlockCount][]byte
 			if duid == phase1.DUIDLogicalLink2 {
 				lces = phase1.AssembleEncryptionSync(phase1.EncryptionSync{
-					MessageIndicator: next, AlgorithmID: p25.AlgorithmADP, KeyID: keyID,
+					MessageIndicator: next, AlgorithmID: algID, KeyID: keyID,
 				})
 			}
 			var lsd [phase1.LDULSDBlockCount][]byte
@@ -225,4 +233,102 @@ func TestComposerP25Phase1ADPLeavesClearCallsAlone(t *testing.T) {
 	if m := bestAlignmentMatches(got, want); m < 3*phase1.LDUVoiceSubframeCount {
 		t.Fatalf("clear call with a key resolver: only %d of %d frames match the modulated frames", m, len(got))
 	}
+}
+
+// TestComposerP25Phase1OFBFamilyDecryptsWithConfiguredKey runs the ADP chain
+// regression for the OFB-family algorithms the voice path now descrambles —
+// DES-OFB (0x81), AES-256 (0x84) and AES-128 (0x85) — each resolved through
+// the normalised algorithm name the operator's encryption_keys carry. A DES
+// key offered for an AES call (or the wrong AES length) must leave
+// ciphertext: the ES's ALGID decides the variant, never the key list.
+func TestComposerP25Phase1OFBFamilyDecryptsWithConfiguredKey(t *testing.T) {
+	const (
+		sampleRate  = 48_000.0
+		deviation   = 1800.0
+		superframes = 8
+		keyID       = 7
+	)
+	mi0 := [9]byte{0x17, 0xCE, 0xEC, 0x55, 0x31, 0x0A, 0x74, 0x75, 0x00}
+	framesPerSF := 2 * phase1.LDUVoiceSubframeCount
+	// The receiver's acquisition on these streams can cost a superframe or
+	// two of lead-in depending on the scrambled symbol pattern (and the
+	// assembler never delivers the last LDU), so require half the stream
+	// rather than all-but-one superframe; the all-match assertion below is
+	// what proves the descramble.
+	minFrames := (superframes / 2) * framesPerSF
+	cases := []struct {
+		name    string
+		algID   uint8
+		algName string
+		keyLen  int
+	}{
+		{"des-ofb", 0x81, "des", 8},
+		{"aes-256", 0x84, "aes", 32},
+		{"aes-128", 0x85, "aes", 16},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			key := make([]byte, tc.keyLen)
+			for i := range key {
+				key[i] = byte(0xA5 ^ i*3)
+			}
+			dibits, clear := buildP25P1EncryptedStream(t, tc.algID, key, keyID, mi0, superframes)
+			iq := demod.ModulateP25C4FM(dibits, sampleRate, deviation)
+			resolver := func(system, algorithm string, kid uint16) ([]byte, bool) {
+				if system == "P25ADPSite" && algorithm == tc.algName && kid == keyID {
+					return key, true
+				}
+				return nil, false
+			}
+			got := runP25ADPChain(t, iq, resolver, minFrames)
+			if len(got) < minFrames {
+				t.Fatalf("recorded %d frames, want ≥ %d", len(got), minFrames)
+			}
+			// Every clear frame is unique (distinct seeds), so "is this
+			// recorded frame one of the clear frames" is exact per frame and
+			// — unlike a global alignment — survives the receiver dropping an
+			// LDU mid-stream on an unlucky scrambled symbol pattern.
+			// FEC-partial frames the extractor still returns (the receiver's
+			// first LDU after lock, a corrected-but-wrong frame) are the only
+			// legitimate misses: a ciphertext stream scores ~0.
+			if matches := clearFrameMembers(got, clear); matches < len(got)*9/10 {
+				t.Fatalf("only %d of %d recorded frames are clear frames — %s descramble not applied", matches, len(got), tc.name)
+			}
+			// A key of the wrong length for the ALGID on air is refused.
+			wrongLen := func(system, algorithm string, kid uint16) ([]byte, bool) {
+				return key[:tc.keyLen/2], true
+			}
+			raw := runP25ADPChain(t, iq, wrongLen, minFrames)
+			if m := clearFrameMembers(raw, clear); m >= phase1.LDUVoiceSubframeCount {
+				t.Fatalf("a wrong-length key decrypted %d frames", m)
+			}
+			// A key under a different algorithm name is not used.
+			other := func(system, algorithm string, kid uint16) ([]byte, bool) {
+				if algorithm == "rc4" {
+					return []byte{1, 2, 3, 4, 5}, true
+				}
+				return nil, false
+			}
+			none := runP25ADPChain(t, iq, other, minFrames)
+			if m := clearFrameMembers(none, clear); m >= phase1.LDUVoiceSubframeCount {
+				t.Fatalf("an rc4 key was applied to a %s call (%d frames match)", tc.name, m)
+			}
+		})
+	}
+}
+
+// clearFrameMembers counts the recorded frames that are byte-identical to
+// SOME clear frame (order-free).
+func clearFrameMembers(got, clear [][]byte) int {
+	set := make(map[string]struct{}, len(clear))
+	for _, c := range clear {
+		set[string(c)] = struct{}{}
+	}
+	n := 0
+	for _, g := range got {
+		if _, ok := set[string(g)]; ok {
+			n++
+		}
+	}
+	return n
 }

@@ -90,6 +90,25 @@ export const writes = {
   setScanMode: (c: ClientConfig, mode: "all" | "list") =>
     request<void>(c, "PATCH", "/api/v1/scanner", { scan_mode: mode }),
 
+  // Talkgroup hold: follow ONLY this talkgroup until released (the scanner
+  // "Hold" key); system "" = on any system.
+  holdTalkgroup: (c: ClientConfig, talkgroup: number, system?: string) =>
+    request<void>(c, "POST", "/api/v1/scanner/hold", { talkgroup, system: system ?? "" }),
+  releaseHold: (c: ClientConfig) => request<void>(c, "DELETE", "/api/v1/scanner/hold"),
+  // Timed avoid: lock a talkgroup out for a while (default 30 minutes on
+  // the daemon), then scanning resumes on its own.
+  avoidTalkgroup: (c: ClientConfig, talkgroup: number, duration?: string, system?: string) =>
+    request<void>(c, "POST", `/api/v1/talkgroups/${talkgroup}/avoid`, {
+      duration: duration ?? "30m",
+      system: system ?? "",
+    }),
+  unavoidTalkgroup: (c: ClientConfig, talkgroup: number, system?: string) =>
+    request<void>(
+      c,
+      "DELETE",
+      `/api/v1/talkgroups/${talkgroup}/avoid${system ? `?system=${encodeURIComponent(system)}` : ""}`,
+    ),
+
   // Live system-discovery (hunt) controls.
   huntStart: (c: ClientConfig, req: HuntStartRequest) =>
     request<{ run_id: number }>(c, "POST", "/api/v1/hunt/start", req),
