@@ -8,6 +8,18 @@ for tagged releases.
 ## [Unreleased]
 
 ### Added
+- **Motorola P25 talker aliases decode to the radio's real display name
+  (#773).** The proprietary per-byte alias cipher was recovered by clean-room
+  reverse engineering and enabled (`CipherVerified = true`) in v1.0.8 (#1123)
+  but never announced here: it reproduces a held-out reference set
+  byte-for-byte (1242/1242 characters) and decodes the real #376 capture
+  (RID 200062) to "CRIO 0062" with a valid CRC-16/GSM. Nothing to configure —
+  the name appears in the **Radio IDs** panel's *Talker alias* column, on
+  `GET /api/v1/rids`, and as the `talker.alias` event, on every path that
+  follows a Phase 2 call (voice receivers, wideband `voice_taps`, and the
+  `signalling_taps` harvester) and on the Phase 1 LC / vendor-TSBK carriers.
+  New operator guide: docs/talker-alias.md.
+
 - **ACARS decoding on conventional-scanner AM channels (#1231).** A
   `scanner.conventional` entry with `mode: am` and `decoders: [acars]`
   decodes the VHF air-band aircraft data link (131.550 / 131.525 /
@@ -22,6 +34,20 @@ for tagged releases.
   live scanner run. See docs/acars.md.
 
 ### Fixed
+- **Motorola talker-alias fragments are now read at their fixed on-air
+  lengths, so the alias decodes on the LIVE path, not just in fixtures
+  (#773).** A Phase 2 MAC PDU after FEC removal is 144 bits (18 bytes), one
+  byte longer than the SDRTrunk MSG dumps the unit tests were built from, and
+  the alias parsers took the fragment as "everything to the end of the
+  payload". Live, that appended a trailing byte to the header fragment and to
+  every data fragment; each landed mid-stream and shifted the cipher region,
+  so the radio ID still parsed (it leads the header fragment) while the name
+  decoded to garbage and was dropped — the reporter's exact "RID resolves,
+  Talker Alias: —" symptom. Fragments are now sliced to the header's 64 bits
+  and each data block's 100 bits (the structural constants SDRTrunk's
+  assembler uses). Pinned failing-first by
+  `TestMotorolaAliasAssemblerDecodesFromLiveLengthPDUs` and an end-to-end
+  dispatcher test that carries the real #376 PDUs on 144-bit sub-frames.
 - **RadioReference sites CSVs (`trs_sites_<id>.csv`) now import (#849).**
   The importer used to reject them, first with an opaque "data at line 1
   before any # Section marker" error and later with a "can't import

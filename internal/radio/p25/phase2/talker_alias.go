@@ -213,9 +213,27 @@ func cleanAlias(raw []byte) string {
 //
 // The data fragment is therefore NIBBLE-aligned: its low nibble of [2]
 // leads, and fragments concatenate as a nibble stream, not whole bytes.
+//
+// Fragment LENGTHS are fixed, not "to the end of the payload": the header
+// carries a 64-bit fragment and each data block a 100-bit one (the lead
+// nibble + 12 bytes) — the structural constants SDRTrunk's assembler uses
+// (HEADER_FRAGMENT_LENGTH 64 / DATA_BLOCK_FRAGMENT_LENGTH 100, posted as
+// protocol facts on #773). This matters on the LIVE path: a Phase 2 MAC
+// PDU after FEC removal is 144 bits = 18 bytes, so a vendor PDU's payload
+// is 16 bytes, one more than the 15-byte SDRTrunk MSG dumps the fixtures
+// are built from. Slicing to the payload end therefore appended one
+// trailing byte to the header fragment AND to every data fragment, each
+// landing mid-stream and shifting the whole cipher region — the SUID still
+// parsed (it leads the header fragment), but the name decoded to garbage
+// and was dropped, exactly the "RID resolves, Talker Alias: —" symptom the
+// #773 reporter saw after the nibble fix. Pinned by
+// TestMotorolaAliasAssemblerDecodesFromLiveLengthPDUs and the sigfollow
+// end-to-end test on 144-bit sub-frames.
 const (
 	aliasHeaderFragOffset = 7
+	aliasHeaderFragBytes  = 8 // 64-bit header fragment
 	aliasDataFragOffset   = 3
+	aliasDataFragBytes    = 12 // 100-bit data fragment = lead nibble + 12 bytes
 )
 
 // MotorolaAliasHeader is a decoded FACCH-S talker-alias header PDU.
@@ -232,14 +250,15 @@ func (p MACPDU) AsMotorolaAliasHeader() (MotorolaAliasHeader, bool) {
 	if p.Opcode != OpMotorolaAliasHeader || p.MFID != MFIDMotorola {
 		return MotorolaAliasHeader{}, false
 	}
-	if len(p.Payload) <= aliasHeaderFragOffset {
+	if len(p.Payload) < aliasHeaderFragOffset+aliasHeaderFragBytes {
 		return MotorolaAliasHeader{}, false
 	}
+	frag := p.Payload[aliasHeaderFragOffset : aliasHeaderFragOffset+aliasHeaderFragBytes]
 	return MotorolaAliasHeader{
 		TalkgroupID: uint16(p.Payload[1])<<8 | uint16(p.Payload[2]),
 		BlockCount:  p.Payload[3],
 		Sequence:    p.Payload[5] & 0x0F,
-		Fragment:    append([]byte(nil), p.Payload[aliasHeaderFragOffset:]...),
+		Fragment:    append([]byte(nil), frag...),
 	}, true
 }
 
@@ -262,14 +281,15 @@ func (p MACPDU) AsMotorolaAliasData() (MotorolaAliasData, bool) {
 	if p.Opcode != OpMotorolaAliasData || p.MFID != MFIDMotorola {
 		return MotorolaAliasData{}, false
 	}
-	if len(p.Payload) <= aliasDataFragOffset {
+	if len(p.Payload) < aliasDataFragOffset+aliasDataFragBytes {
 		return MotorolaAliasData{}, false
 	}
+	frag := p.Payload[aliasDataFragOffset : aliasDataFragOffset+aliasDataFragBytes]
 	return MotorolaAliasData{
 		BlockNumber: p.Payload[1],
 		Sequence:    p.Payload[2] >> 4,
 		LeadNibble:  p.Payload[2] & 0x0F,
-		Fragment:    append([]byte(nil), p.Payload[aliasDataFragOffset:]...),
+		Fragment:    append([]byte(nil), frag...),
 	}, true
 }
 

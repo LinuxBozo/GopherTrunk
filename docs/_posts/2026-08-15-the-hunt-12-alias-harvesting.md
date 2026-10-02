@@ -10,6 +10,12 @@ series: "The Hunt"
 series_part: 12
 ---
 
+> **Status update (October 2026):** the cipher this post calls unreadable has since been
+> recovered clean-room and verified (`motorola.CipherVerified` is now **true**, shipped in
+> v1.0.8). On current builds the harvester publishes the radio's real display name, not an
+> empty string. The harvesting architecture below is unchanged; read the "can't read it"
+> passages as history. Operator guide: [Talker aliases]({{ '/talker-alias.html' | relative_url }}).
+
 *Part 12 of **The Hunt**. Part 11 left us with a system that has named nothing
 smaller than itself: talkgroups are decimals, units are decimals. But there is
 one genuine, human name that travels over the air — the **talker alias**, the
@@ -42,10 +48,11 @@ cipher we still can't read.*
 - **RS parity gates trust.** A mis-framed superframe decodes random bytes that
   almost never verify, so only an RS-valid PDU is trusted to set a call's source
   — a wrong RID is worse than an absent one.
-- **The Motorola alias is still unread — so harvest the ciphertext.** The
-  proprietary alias cipher is unverified, so the decoded name is usually empty;
-  the follower logs the reassembled ciphertext (paired with source RID and
-  talkgroup) as the corpus the cryptanalysis needs.
+- **The Motorola alias ciphertext is logged alongside the name.** The follower
+  logs the reassembled ciphertext (paired with source RID and talkgroup) as an
+  audit trail; at the time of writing the cipher was unverified and this corpus
+  is what the cryptanalysis consumed — it has since been recovered, so the
+  decoded name now publishes too.
 
 ## Cheat sheet
 
@@ -241,13 +248,14 @@ the same discipline the [naming post]({{ '/blog/deep-dives/the-hunt-11-naming-th
 drew for talkgroups — refuse to assert what you can't verify — applied to a
 single source RID.
 
-## The ciphertext we can't read
+## The ciphertext we couldn't read (then)
 
-And then there is the alias GopherTrunk *reassembles perfectly and still can't
+And then there was the alias GopherTrunk *reassembled perfectly and still couldn't
 read*. The real Motorola FACCH-S alias runs through a proprietary per-byte
-cipher, and that cipher is unverified — `motorola.CipherVerified` is false — so
-the decoded name comes out empty on real traffic. Rather than throw the burst
-away, the follower harvests the **ciphertext**:
+cipher, and when this was written that cipher was unverified —
+`motorola.CipherVerified` was false — so the decoded name came out empty on real
+traffic. Rather than throw the burst away, the follower harvested the
+**ciphertext** (it still logs it today, next to the now-decoded name):
 
 ```go
 // internal/sigfollow/dispatcher.go (shape) — completeMotorolaAlias
@@ -304,12 +312,13 @@ would inject a wrong-but-plausible RID that's indistinguishable downstream from 
 real one. Only the outer RS parity separates a genuine PDU from garbage, so only
 an RS-verified PDU sets a call's source. A wrong RID is worse than none.
 
-**Why does a Motorola alias come out empty?**
-Its per-byte cipher is unverified (`motorola.CipherVerified` is false), so the
-decode can't be trusted to produce a real name. Rather than emit a wrong one, the
-follower publishes an empty alias and logs the reassembled **ciphertext** — the
-corpus the cryptanalysis needs. It's the *Mercury* cipher from the decoder and
-crypto series.
+**Why did a Motorola alias come out empty?**
+When this was written its per-byte cipher was unverified
+(`motorola.CipherVerified` was false), so the follower published an empty alias
+and logged the reassembled **ciphertext** — the corpus the cryptanalysis needed.
+That cipher has since been recovered and verified, so current builds publish the
+real name (and still log the ciphertext). It's the *Mercury* cipher from the
+decoder and crypto series.
 
 **What stops two decoders fighting over one frequency?**
 The manager tracks active follows and voice-followed frequencies. A grant already
