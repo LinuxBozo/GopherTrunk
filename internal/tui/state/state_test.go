@@ -98,6 +98,13 @@ func TestWriteKindEnumIsDense(t *testing.T) {
 		WriteKindAudio,
 		WriteKindScannerManualTune,
 		WriteKindSettings,
+		WriteKindHuntStop,
+		WriteKindHuntStart,
+		WriteKindHuntCapture,
+		WriteKindTalkgroupHold,
+		WriteKindTalkgroupReleaseHold,
+		WriteKindTalkgroupAvoid,
+		WriteKindTalkgroupUnavoid,
 	}
 	seen := map[WriteKind]bool{}
 	for _, k := range kinds {

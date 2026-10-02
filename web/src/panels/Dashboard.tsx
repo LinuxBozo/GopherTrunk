@@ -5,6 +5,7 @@ import { PageHeader } from "../components/ui/PageHeader";
 import { Badge } from "../components/ui/Badge";
 import { RIDLink } from "../components/RIDLink";
 import { SignalSummary, SystemSignalMeter } from "../components/SignalHealth";
+import { IntegrationsCard } from "../components/IntegrationsCard";
 import { useDataPoll } from "../hooks/useDataPoll";
 import { useScannerSystems } from "../hooks/useLockedSystemSignal";
 import { useSpectrumDevices } from "../hooks/useSpectrumDevices";
@@ -158,6 +159,9 @@ export function Dashboard() {
           ))}
         </div>
       )}
+
+      {/* Optional outbound subsystems: alert channels + speech-to-text. */}
+      <IntegrationsCard />
 
       {/* Hero: who's talking right now. */}
       <section className="panel p-4">

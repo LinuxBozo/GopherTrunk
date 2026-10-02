@@ -86,8 +86,10 @@ sidecars, Broadcastify / Rdio / OpenMHz / Icecast / webhooks, rigctld.
 | Encryption | P25 Phase 2 (TDMA) decryption | OP25 (experimental) | ○ |
 | Scanning | no alert rules / notifications (tone.alert never left the bus) | Uniden/Whistler alerts, SDRTrunk alias actions, TR MQTT | ✔ |
 | Scanning | no talkgroup **Hold**, no **timed Avoid** | Uniden, OP25, dsd-neo, rdio-scanner | ✔ |
-| Scanning | no priority-channel sampling, favourites / quick keys, Close Call, Discovery mode, location-based scanning | Uniden | ○ |
-| Scanning | no site roaming / neighbour following; conventional lockouts not persisted | DSDPlus roaming | ○ |
+| Scanning | no priority-channel sampling on the conventional list | Uniden | ✔ (`scanner.priority_interleave`) |
+| Scanning | favourites / quick keys, Close Call, Discovery mode, location-based scanning | Uniden | ○ |
+| Scanning | conventional lockouts not persisted | Uniden, Whistler | ✔ (`conv_lockouts` table) |
+| Scanning | no site roaming / neighbour following | DSDPlus roaming | ○ |
 | Trunking | P25 status / message / call-alert / deny / queue / ack / extended-function / radio-monitor TSBKs unparsed | SDRTrunk, TR (MQTT) | ✔ |
 | Trunking | no SMS / SDS / LRRP / P25 GPS / data-channel decode; TETRA SDS | SDRTrunk, DSD-FME, DSDPlus, SDR# TETRA plugin | ○ |
 | Trunking | DMR Connect Plus / Hytera XPT recognised, not decoded; NXDN48; ProVoice / YSF audio | DSDPlus | ○ |
@@ -145,10 +147,10 @@ Ordered by value to a scanner operator.
 | **TETRA SDS (text, LIP location) and D-STATUS** | Layouts exist in tetra-kit / osmo-tetra; worth doing, but GopherTrunk's SDS path needs a capture with known message content to pin — none is on hand. |
 | **DMR LRRP / P25 Motorola & Harris unit GPS / SMS / data-channel decode** | The P25 PDU / SNDCP / IPv4 parsers exist but nothing feeds them; LRRP needs a data-call follow (T3 data grants are observed, not followed). Capture-gated. |
 | **Site roaming / neighbour following** | Neighbours are decoded and displayed; following them needs an RSSI/decode-quality policy and a multi-site test rig. |
-| **Priority-channel sampling, Close Call / Discovery mode, favourites & quick keys, location-based scanning** | Scanner-UX features with no decode risk; Discovery mode (auto-record unknown TGs) and priority sampling are the two most requested — design items for the next series. |
+| **Close Call / Discovery mode, favourites & quick keys, location-based scanning** | Scanner-UX features with no decode risk; Discovery mode (auto-record unknown TGs) is the most requested — a design item for the next series. Priority-channel sampling landed as `scanner.priority_interleave`. |
 | **Stereo / per-slot audio, start / drop tones, noise reduction** | Audio-path work; per-slot panning conflicts with the mono 8 kHz live stream contract and needs a web-player change too. |
 | **Instant replay / live delay queue; Opus / M4A recordings** | M4A needs an AAC encoder (none pure-Go); Opus is a dependency decision. |
-| **Persisted conventional lockouts; hold/avoid surviving restart** | Small; the `labels` table is the natural home. |
+| **Talkgroup hold / avoid surviving a restart** | Deliberately session-only (a scanner power cycle clears them); conventional lockouts now persist by frequency in the `conv_lockouts` table. |
 | **DMR Connect Plus / Hytera XPT, NXDN48, ProVoice & YSF audio** | All capture- or licence-gated (`docs/status.md`). |
 
 ## 5. Method note

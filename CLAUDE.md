@@ -790,6 +790,13 @@ confirmation before any close-as-completed.
     (whisper.cpp refuses anything else). Transcripts attach to call rows THROUGH
     `call_recordings` by path (segments append) — the recorder's `CallComplete.AudioPath`
     is the key, so never rename a recording between CallComplete and the store.
+  - **Conventional lockouts persist by FREQUENCY** (`storage.ConvLockoutStore`, table
+    `conv_lockouts`, wired through `conventional.Options.LockedOutHz` / `OnLockoutChange`
+    in `cmd/gophertrunk/conv_lockouts.go`) — never by list index, which shifts when the
+    operator edits the scan list. Talkgroup hold / avoid stay session-only on purpose.
+    `scanner.priority_interleave` is the conventional priority scan: `pickNextChannel`
+    visits the next `Priority`-bearing channel after N ordinary picks, and a cursor visit
+    to a priority channel resets that clock (pinned by `lockout_persist_test.go`).
   - **Adding a config section** touches: `config.Config`, `sectionValidators()`,
     `configbuilder/fieldmeta.go` (every field needs Help — `TestFieldHelpCoverage`),
     `configbuilder/sections.go`, `web/configbuilder/src/api/types.ts` (every field —

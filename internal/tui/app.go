@@ -748,6 +748,23 @@ func (m *Model) dispatchWrite(r state.WriteRequest) tea.Cmd {
 			return nil
 		}
 		return cmdScannerConvUnlockout(m.cli, r.ScannerConv.Index, r.Label)
+	case state.WriteKindTalkgroupHold:
+		if r.TalkgroupHold == nil {
+			return nil
+		}
+		return cmdTalkgroupHold(m.cli, r.TalkgroupHold.System, r.TalkgroupHold.ID, r.Label)
+	case state.WriteKindTalkgroupReleaseHold:
+		return cmdReleaseHold(m.cli, r.Label)
+	case state.WriteKindTalkgroupAvoid:
+		if r.TalkgroupAvoid == nil {
+			return nil
+		}
+		return cmdTalkgroupAvoid(m.cli, r.TalkgroupAvoid.System, r.TalkgroupAvoid.ID, r.TalkgroupAvoid.Minutes, r.Label)
+	case state.WriteKindTalkgroupUnavoid:
+		if r.TalkgroupAvoid == nil {
+			return nil
+		}
+		return cmdTalkgroupUnavoid(m.cli, r.TalkgroupAvoid.System, r.TalkgroupAvoid.ID, r.Label)
 	case state.WriteKindAudio:
 		if r.Audio == nil {
 			return nil

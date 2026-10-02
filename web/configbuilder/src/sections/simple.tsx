@@ -594,6 +594,13 @@ export function ScannerSection() {
         placeholder="0"
         help="Tune the scanner SDR this far below each channel and mix back, keeping the DC spur / clipping products out of the FM audio. 0 = auto, <0 = off."
       />
+      <NumberField
+        label="Priority interleave"
+        value={cfg.PriorityInterleave ?? 0}
+        onChange={(x) => set({ ...cfg, PriorityInterleave: x })}
+        placeholder="0"
+        help="Priority scan: after this many ordinary channels the rotation visits the next channel with a priority set. 0 = plain round robin."
+      />
     </Section>
   );
 }

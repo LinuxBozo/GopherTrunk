@@ -54,6 +54,16 @@ export const writes = {
   endCall: (c: ClientConfig, deviceSerial: string) =>
     request<void>(c, "POST", `/api/v1/calls/${encodeURIComponent(deviceSerial)}/end`),
 
+  // Deliver a synthetic notification through one alert channel so a
+  // webhook / ntfy topic / MQTT broker can be confirmed reachable without
+  // waiting for a matching call (POST /api/v1/alerts/test/{channel}).
+  testAlertChannel: (c: ClientConfig, channel: string) =>
+    request<{ ok: boolean; channel: string }>(
+      c,
+      "POST",
+      `/api/v1/alerts/test/${encodeURIComponent(channel)}`,
+    ),
+
   // system, when given, scopes a persisted label to one trunking system —
   // talkgroup_file / rid_alias_file are per-system config keys, so an export
   // has to be able to emit one file per system. Omitted, the name applies

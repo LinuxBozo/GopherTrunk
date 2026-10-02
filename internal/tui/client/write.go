@@ -8,6 +8,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 )
 
 // MutationStatus mirrors GET /api/v1/mutations. The TUI fetches it
@@ -150,10 +151,42 @@ func (c *Client) ScannerConvDwell(ctx context.Context, index int) error {
 		nil, nil)
 }
 
+// TalkgroupHold follows only the given talkgroup until ReleaseHold
+// (POST /api/v1/scanner/hold). An empty system matches it on any system.
+func (c *Client) TalkgroupHold(ctx context.Context, system string, tg uint32) error {
+	return c.do(ctx, http.MethodPost, "/api/v1/scanner/hold",
+		map[string]any{"system": system, "talkgroup": tg}, nil)
+}
+
+// ReleaseHold clears the talkgroup hold (DELETE /api/v1/scanner/hold).
+func (c *Client) ReleaseHold(ctx context.Context) error {
+	return c.do(ctx, http.MethodDelete, "/api/v1/scanner/hold", nil, nil)
+}
+
+// TalkgroupAvoid locks a talkgroup out for minutes (<= 0 = the daemon's
+// default, 30), after which scanning resumes on its own.
+func (c *Client) TalkgroupAvoid(ctx context.Context, system string, tg uint32, minutes int) error {
+	body := map[string]any{"system": system}
+	if minutes > 0 {
+		body["minutes"] = minutes
+	}
+	return c.do(ctx, http.MethodPost,
+		fmt.Sprintf("/api/v1/talkgroups/%d/avoid", tg), body, nil)
+}
+
+// TalkgroupUnavoid clears a timed lockout early.
+func (c *Client) TalkgroupUnavoid(ctx context.Context, system string, tg uint32) error {
+	path := fmt.Sprintf("/api/v1/talkgroups/%d/avoid", tg)
+	if system != "" {
+		path += "?system=" + url.QueryEscape(system)
+	}
+	return c.do(ctx, http.MethodDelete, path, nil, nil)
+}
+
 // ScannerConvLockout / ScannerConvUnlockout toggle the per-channel
 // lockout the scanner respects when picking the next channel to
-// dwell on. The flag is runtime-only; it doesn't persist across
-// daemon restarts.
+// dwell on. The daemon persists the flag by frequency when storage is
+// configured, so it survives a restart.
 func (c *Client) ScannerConvLockout(ctx context.Context, index int) error {
 	return c.do(ctx, http.MethodPost,
 		fmt.Sprintf("/api/v1/scanner/conventional/%d/lockout", index),

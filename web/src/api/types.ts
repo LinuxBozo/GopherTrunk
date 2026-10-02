@@ -730,3 +730,60 @@ export interface ToneAlertDTO {
   matched_at: string;
   frequencies_hz: number[];
 }
+
+// GET /api/v1/alerts — the alert-rule / notification subsystem's live state.
+// `configured: false` when the daemon has no `alerts:` section; the lists
+// are then empty.
+export interface AlertChannelStatusDTO {
+  name: string;
+  type: string;
+  sent: number;
+  failed: number;
+  last_error?: string;
+  last_sent?: string;
+  mirrors_events?: boolean;
+}
+
+export interface AlertRuleStatusDTO {
+  name: string;
+  channels: string[];
+  fired: number;
+  cooldown_suppressed: number;
+}
+
+export interface AlertFiringDTO {
+  rule: string;
+  at: string;
+  title: string;
+  text: string;
+  channels: string[];
+}
+
+export interface AlertsStatusDTO {
+  configured: boolean;
+  channels: AlertChannelStatusDTO[];
+  rules: AlertRuleStatusDTO[];
+  matched?: number;
+  queued?: number;
+  dropped?: number;
+  recent: AlertFiringDTO[];
+}
+
+// GET /api/v1/transcription — the speech-to-text backend's counters, or
+// `configured: false` when the daemon has no `transcription:` section.
+export interface TranscriptionStatusDTO {
+  configured: boolean;
+  url?: string;
+  model?: string;
+  language?: string;
+  queued?: number;
+  dropped?: number;
+  sent?: number;
+  failed?: number;
+  skipped?: number;
+  last_error?: string;
+  last_text?: string;
+  last_at?: string;
+  audio_seconds?: number;
+  mean_latency_ms?: number;
+}

@@ -5,6 +5,8 @@
 // reloading.
 
 import type {
+  AlertsStatusDTO,
+  TranscriptionStatusDTO,
   ActiveCallDTO,
   AudioStatusDTO,
   CallRow,
@@ -269,6 +271,12 @@ export const api = {
     ),
   scanner: (c: ClientConfig) =>
     request<ScannerStatusDTO>(c, "GET", "/api/v1/scanner"),
+  // Alerts / transcription are optional subsystems: both endpoints answer
+  // 200 with `configured: false` when the config has no such section.
+  alertsStatus: (c: ClientConfig) =>
+    request<AlertsStatusDTO>(c, "GET", "/api/v1/alerts"),
+  transcriptionStatus: (c: ClientConfig) =>
+    request<TranscriptionStatusDTO>(c, "GET", "/api/v1/transcription"),
   hunt: (c: ClientConfig) => request<HuntStatus>(c, "GET", "/api/v1/hunt"),
   huntRadioReference: (
     c: ClientConfig,

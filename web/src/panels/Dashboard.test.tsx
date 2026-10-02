@@ -9,6 +9,10 @@ vi.mock("../api/client", () => ({
     devices: vi.fn().mockResolvedValue([]),
     systems: vi.fn().mockResolvedValue([]),
     scanner: vi.fn().mockResolvedValue({ systems: [] }),
+    alertsStatus: vi
+      .fn()
+      .mockResolvedValue({ configured: false, channels: [], rules: [], recent: [] }),
+    transcriptionStatus: vi.fn().mockResolvedValue({ configured: false }),
   },
 }));
 

@@ -596,7 +596,7 @@ gophertrunk tui -server https://radio.example.com -insecure
 | Panel | Keys |
 | --- | --- |
 | Systems | `Enter` open detail |
-| Talkgroups | `/` filter, `s` cycle sort, `l` toggle lockout, `S` toggle scan, `+` / `-` priority ± 1, `Enter` detail |
+| Talkgroups | `/` filter, `s` cycle sort, `l` toggle lockout, `S` toggle scan, `+` / `-` priority ± 1, `h` hold / release, `a` avoid 30 min, `Enter` detail |
 | Active calls | `e` end highlighted call (write) |
 | Call history | `r` reload (no continuous poll) |
 | Events | `/` filter, `p` pause auto-scroll, `c` clear filter |

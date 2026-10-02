@@ -15,8 +15,8 @@
 //
 // The receiver emits raw bits (each byte is 0 or 1) via
 // ltr.BitSink. Manchester decoding (if the system uses it) plus the
-// 41-bit Status-word framing live in a future
-// ControlChannel.Process adapter and aren't wired by this package.
+// 41-bit Status-word framing live in ltr.ControlChannel.Process; the
+// ccdecoder LTR pipeline connects the two.
 //
 // The receiver is stateful and not safe for concurrent Process
 // calls. Instantiate one per tuned frequency / per call chain.

@@ -482,6 +482,7 @@ type Daemon struct {
 	locationLog  *storage.LocationLog
 	bookmarks    *storage.BookmarkStore
 	labels       *storage.LabelStore
+	convLockouts *storage.ConvLockoutStore
 	pagerLog     *storage.PagerLog
 	aprsLog      *storage.APRSLog
 	vesselLog    *storage.VesselLog
@@ -1817,16 +1818,23 @@ func NewDaemonWithPath(cfg config.Config, cfgPath string, version string, log *s
 			convFE := newConvScannerFrontEnd(convInner, loOffset, cfg.SDR.SampleRate, convEntry.Info.Serial, log)
 			var convTuner conventional.Tuner = convFE
 			var convIQ conventional.IQSource = convFE
+			// Runtime lockouts persist by frequency when storage is
+			// configured (a scanner's lockout memory); without storage
+			// they stay runtime-only as before.
+			lockedOutHz, onLockout := convLockoutPersistence(d.convLockouts, log)
 			cs, err := conventional.New(conventional.Options{
-				Log:          log,
-				Tuner:        convTuner,
-				IQ:           convIQ,
-				Engine:       d.engine,
-				Recorder:     convRec,
-				DeviceSerial: convEntry.Info.Serial,
-				SystemName:   "scanner",
-				Channels:     channels,
-				SampleRateHz: float64(cfg.SDR.SampleRate),
+				Log:                log,
+				Tuner:              convTuner,
+				IQ:                 convIQ,
+				Engine:             d.engine,
+				Recorder:           convRec,
+				DeviceSerial:       convEntry.Info.Serial,
+				SystemName:         "scanner",
+				Channels:           channels,
+				SampleRateHz:       float64(cfg.SDR.SampleRate),
+				LockedOutHz:        lockedOutHz,
+				OnLockoutChange:    onLockout,
+				PriorityInterleave: cfg.Scanner.PriorityInterleave,
 				// MDC1200 / FleetSync on the scan list's own channels
 				// (issue #1220): decoded bursts publish on the same bus
 				// kinds as the dedicated-SDR receivers, stamped with this
@@ -2291,7 +2299,7 @@ func (d *Daemon) buildOutboundFeeds(cfg config.Config, log *slog.Logger, dispLoc
 	// Alert rules + notification channels — optional. Built only when at
 	// least one rule is enabled.
 	{
-		mgr, err := buildAlertsManager(cfg.Alerts, d.bus, log)
+		mgr, err := buildAlertsManager(cfg.Alerts, d.bus, d.rids, log)
 		if err != nil {
 			return fmt.Errorf("daemon: alerts: %w", err)
 		}
@@ -3246,6 +3254,13 @@ func (d *Daemon) buildStorage(cfg config.Config, log *slog.Logger) error {
 			log.Info("daemon: operator labels applied",
 				"updated", applied, "created", created)
 		}
+
+		cls, err := storage.NewConvLockoutStore(db)
+		if err != nil {
+			db.Close()
+			return fmt.Errorf("daemon: conv lockouts: %w", err)
+		}
+		d.convLockouts = cls
 
 		pl, err := storage.NewPagerLog(db, d.bus, log)
 		if err != nil {

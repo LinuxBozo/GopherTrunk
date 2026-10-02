@@ -208,6 +208,24 @@ type ScannerStatusDTO struct {
 	Conventional        ConvScannerStatusDTO  `json:"conventional"`
 	TalkgroupScanCount  int                   `json:"tg_scan_count"`
 	TalkgroupTotalCount int                   `json:"tg_total"`
+	// Hold is the active talkgroup hold (nil = scanning normally);
+	// Avoids the live timed lockouts. Mirrors trunking.HoldState / Avoid.
+	Hold   *TalkgroupHoldDTO   `json:"hold,omitempty"`
+	Avoids []TalkgroupAvoidDTO `json:"avoids"`
+}
+
+// TalkgroupHoldDTO mirrors trunking.HoldState.
+type TalkgroupHoldDTO struct {
+	System    string    `json:"system,omitempty"`
+	Talkgroup uint32    `json:"talkgroup"`
+	Since     time.Time `json:"since"`
+}
+
+// TalkgroupAvoidDTO mirrors trunking.Avoid.
+type TalkgroupAvoidDTO struct {
+	System    string    `json:"system,omitempty"`
+	Talkgroup uint32    `json:"talkgroup"`
+	Until     time.Time `json:"until"`
 }
 
 // SystemHuntStatusDTO mirrors api.SystemHuntStatusDTO.

@@ -161,6 +161,30 @@ func cmdScannerConvLockout(cli *client.Client, idx int, label string) tea.Cmd {
 		return writeResultMsg{Label: label, Err: err}
 	}
 }
+func cmdTalkgroupHold(cli *client.Client, system string, tg uint32, label string) tea.Cmd {
+	return func() tea.Msg {
+		err := cli.TalkgroupHold(context.Background(), system, tg)
+		return writeResultMsg{Label: label, Err: err}
+	}
+}
+func cmdReleaseHold(cli *client.Client, label string) tea.Cmd {
+	return func() tea.Msg {
+		err := cli.ReleaseHold(context.Background())
+		return writeResultMsg{Label: label, Err: err}
+	}
+}
+func cmdTalkgroupAvoid(cli *client.Client, system string, tg uint32, minutes int, label string) tea.Cmd {
+	return func() tea.Msg {
+		err := cli.TalkgroupAvoid(context.Background(), system, tg, minutes)
+		return writeResultMsg{Label: label, Err: err}
+	}
+}
+func cmdTalkgroupUnavoid(cli *client.Client, system string, tg uint32, label string) tea.Cmd {
+	return func() tea.Msg {
+		err := cli.TalkgroupUnavoid(context.Background(), system, tg)
+		return writeResultMsg{Label: label, Err: err}
+	}
+}
 func cmdScannerConvUnlockout(cli *client.Client, idx int, label string) tea.Cmd {
 	return func() tea.Msg {
 		err := cli.ScannerConvUnlockout(context.Background(), idx)

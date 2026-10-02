@@ -1367,6 +1367,14 @@ scanner:
   # tuning"); > 0 pins it in Hz (at most 35% of sdr.sample_rate);
   # < 0 disables it (legacy on-channel tuning).
   lo_offset_hz: 0
+  # priority_interleave: priority scan for the conventional list. After
+  # this many ordinary channels the rotation visits the next channel that
+  # carries a `priority`, so priority channels are sampled several times
+  # per lap (a hardware scanner's priority check). 0 = plain round robin.
+  # Runtime lockouts (TUI `L`, web, API) are persisted by frequency when
+  # storage.path is set, so they survive a restart like a scanner's
+  # lockout memory.
+  priority_interleave: 0
   conventional: []
   # Example conventional channels:
   # conventional:
