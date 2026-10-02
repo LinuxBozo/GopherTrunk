@@ -69,6 +69,18 @@ export function Talkgroups() {
     }
   }
 
+  async function scanAction(label: string, fn: () => Promise<unknown>) {
+    setBusy(true);
+    try {
+      await fn();
+      notify("success", `Scanner: ${label}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : `${label} failed`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const columns: Column<TalkgroupDTO>[] = useMemo(
     () => [
       {
@@ -195,6 +207,22 @@ export function Talkgroups() {
                     onClick={() => patch(r.id, { lockout: !r.lockout })}
                   >
                     lock
+                  </button>
+                  <button
+                    className="pill"
+                    disabled={busy}
+                    title="Hold: follow only this talkgroup until released (Scanner panel)"
+                    onClick={() => scanAction(`hold TG ${r.id}`, () => writes.holdTalkgroup(cfg, r.id))}
+                  >
+                    hold
+                  </button>
+                  <button
+                    className="pill"
+                    disabled={busy}
+                    title="Avoid for 30 minutes, then resume automatically"
+                    onClick={() => scanAction(`avoid TG ${r.id} for 30 min`, () => writes.avoidTalkgroup(cfg, r.id, "30m"))}
+                  >
+                    avoid 30m
                   </button>
                 </span>
               )

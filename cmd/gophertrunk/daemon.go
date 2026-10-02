@@ -3027,6 +3027,7 @@ func (d *Daemon) buildAPIServer(cfg config.Config, version string, log *slog.Log
 		}
 		if d.engine != nil {
 			opts.Patches = d.engine
+			opts.ScanControl = d.engine
 		}
 		if d.siteTracker != nil {
 			opts.Sites = sitesProvider{d.siteTracker}

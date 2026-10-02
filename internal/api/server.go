@@ -35,6 +35,17 @@ type EngineSnapshot interface {
 	IsKnownRadio(id uint32) bool
 }
 
+// ScanControl is the engine's talkgroup hold / timed-avoid surface
+// (trunking.Engine). Optional; when nil the hold / avoid routes return 503.
+type ScanControl interface {
+	Hold(system string, tg uint32) trunking.HoldState
+	ReleaseHold() bool
+	Held() (trunking.HoldState, bool)
+	AvoidTalkgroup(system string, tg uint32, d time.Duration) trunking.Avoid
+	UnavoidTalkgroup(system string, tg uint32) bool
+	Avoids() []trunking.Avoid
+}
+
 // AlertsProvider is the alerts subsystem's read side plus the channel
 // test hook (internal/alerts.Manager). Optional; when nil GET
 // /api/v1/alerts reports the subsystem as not configured.
@@ -233,6 +244,10 @@ type ScannerStatus struct {
 	Conventional        ConvScannerStatusDTO  `json:"conventional"`
 	TalkgroupScanCount  int                   `json:"tg_scan_count"`
 	TalkgroupTotalCount int                   `json:"tg_total"`
+	// Hold is the active talkgroup hold (nil = scanning normally); Avoids
+	// the live temporary lockouts. Both from the engine (ScanControl).
+	Hold   *trunking.HoldState `json:"hold,omitempty"`
+	Avoids []trunking.Avoid    `json:"avoids"`
 }
 
 // SystemHuntStatusDTO mirrors cchunt.SystemStatus for the wire layer
@@ -318,6 +333,7 @@ type Server struct {
 	affiliations AffiliationProvider
 	patches      PatchProvider
 	alerts       AlertsProvider
+	scanControl  ScanControl
 	sites        SitesProvider
 	grants       GrantsProvider
 	metrics      http.Handler
@@ -762,6 +778,8 @@ type ServerOptions struct {
 	Locations LocationQuery
 	// Alerts is optional: the alert-rule manager's status + channel test.
 	Alerts AlertsProvider
+	// ScanControl is optional: talkgroup hold / timed avoid (the engine).
+	ScanControl ScanControl
 	// Patches is optional. When non-nil GET /api/v1/patches serves the
 	// live patch/supergroup table (P25 Motorola/Harris regroups).
 	Patches PatchProvider
@@ -1107,6 +1125,7 @@ func NewServer(opts ServerOptions) (*Server, error) {
 		affiliations:   opts.Affiliations,
 		patches:        opts.Patches,
 		alerts:         opts.Alerts,
+		scanControl:    opts.ScanControl,
 		sites:          opts.Sites,
 		grants:         opts.Grants,
 		metrics:        opts.MetricsHandler,
@@ -1375,6 +1394,10 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/v1/scanner/conventional/{index}/lockout", s.gate(s.handleConvLockout))
 	mux.HandleFunc("POST /api/v1/scanner/conventional/{index}/unlockout", s.gate(s.handleConvUnlockout))
 	mux.HandleFunc("POST /api/v1/scanner/manual_tune", s.gate(s.handleScannerManualTune))
+	mux.HandleFunc("POST /api/v1/scanner/hold", s.gate(s.handleScannerHold))
+	mux.HandleFunc("DELETE /api/v1/scanner/hold", s.gate(s.handleScannerReleaseHold))
+	mux.HandleFunc("POST /api/v1/talkgroups/{id}/avoid", s.gate(s.handleTalkgroupAvoid))
+	mux.HandleFunc("DELETE /api/v1/talkgroups/{id}/avoid", s.gate(s.handleTalkgroupUnavoid))
 	mux.HandleFunc("DELETE /api/v1/scanner/manual_tune/{index}", s.gate(s.handleScannerClearManualTune))
 
 	// Audio cockpit — read endpoint is always open; the PATCH is

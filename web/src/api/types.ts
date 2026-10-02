@@ -427,12 +427,27 @@ export interface HuntStartRequest {
   location?: string;
 }
 
+export interface HoldStateDTO {
+  system?: string;
+  talkgroup: number;
+  since: string;
+}
+
+export interface AvoidDTO {
+  system?: string;
+  talkgroup: number;
+  until: string;
+}
+
 export interface ScannerStatusDTO {
   scan_mode: string;
   systems: SystemHuntStatusDTO[];
   conventional: ConvScannerStatusDTO;
   tg_scan_count: number;
   tg_total: number;
+  // Active talkgroup hold (scanner "Hold" key) and live timed avoids.
+  hold?: HoldStateDTO | null;
+  avoids?: AvoidDTO[];
 }
 
 export interface SystemHuntStatusDTO {

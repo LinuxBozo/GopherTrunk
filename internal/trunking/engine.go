@@ -26,6 +26,7 @@ type Engine struct {
 	pool       *VoicePool
 	talkgroups *TalkgroupDB
 	patches    *PatchRegistry
+	holdAvoid  *holdAvoid
 	timeout    time.Duration
 	now        func() time.Time
 	sub        *events.Subscription
@@ -253,6 +254,7 @@ func NewEngine(opts EngineOptions) (*Engine, error) {
 		pool:           opts.VoicePool,
 		talkgroups:     opts.Talkgroups,
 		patches:        NewPatchRegistry(),
+		holdAvoid:      newHoldAvoid(nil),
 		timeout:        opts.CallTimeout,
 		now:            opts.Now,
 		scanMode:       opts.ScanMode,
@@ -701,12 +703,25 @@ func (e *Engine) HandleGrant(g Grant) {
 	if members := e.patches.MembersOf(g.GroupID); len(members) > 0 {
 		g.PatchedGroups = members
 	}
+	// Operator hold / timed avoid (holdavoid.go): a hold drops every grant
+	// but the held talkgroup; an unexpired avoid drops its talkgroup. Both
+	// let emergency grants through like Lockout does.
+	held := false
+	if ok, why := e.holdAvoid.gate(g.System, g.GroupID, g.PatchedGroups); !ok {
+		if !g.Emergency {
+			e.log.Debug("grant dropped by "+why, "grant", g.String())
+			return
+		}
+	} else if _, isHeld := e.holdAvoid.Held(); isHeld {
+		held = true
+	}
 	// Scan list gate: in ScanModeList, drop grants whose TG is missing
 	// or has Scan==false (Emergency bypasses, matching Lockout's
 	// emergency exception above). A patched super-group passes if the
 	// super-group OR any member talkgroup is scanned. In ScanModeAll
-	// the gate is a no-op.
-	if e.ScanMode() == ScanModeList && !g.Emergency {
+	// the gate is a no-op. A HELD talkgroup bypasses the list too — an
+	// operator who pinned the scanner to it wants it regardless.
+	if e.ScanMode() == ScanModeList && !g.Emergency && !held {
 		scanned := tg != nil && tg.Scan
 		for _, m := range g.PatchedGroups {
 			if mt := e.talkgroups.Lookup(m); mt != nil && mt.Scan {
