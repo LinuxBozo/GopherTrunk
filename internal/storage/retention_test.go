@@ -135,6 +135,11 @@ func TestRetentionDeletesOldFiles(t *testing.T) {
 	now := time.Now()
 	touchFile(t, filepath.Join(dir, "Alpha", "100", "old.wav"), now.Add(-48*time.Hour))
 	touchFile(t, filepath.Join(dir, "Alpha", "100", "old.raw"), now.Add(-48*time.Hour))
+	touchFile(t, filepath.Join(dir, "Alpha", "100", "old.json"), now.Add(-48*time.Hour)) // call metadata sidecar
+	touchFile(t, filepath.Join(dir, "Alpha", "100", "old.imb"), now.Add(-48*time.Hour))  // DSD-FME sidecar
+	touchFile(t, filepath.Join(dir, "Alpha", "100", "old.amb"), now.Add(-48*time.Hour))
+	touchFile(t, filepath.Join(dir, "Alpha", "100", "old.mp3"), now.Add(-48*time.Hour))
+	touchFile(t, filepath.Join(dir, "Alpha", "100", "fresh.json"), now)
 	touchFile(t, filepath.Join(dir, "Alpha", "100", "fresh.wav"), now)
 	touchFile(t, filepath.Join(dir, "Alpha", "100", "config.yaml"), now.Add(-48*time.Hour)) // not a recording
 
@@ -150,6 +155,11 @@ func TestRetentionDeletesOldFiles(t *testing.T) {
 	cases := map[string]bool{
 		filepath.Join(dir, "Alpha", "100", "old.wav"):     false,
 		filepath.Join(dir, "Alpha", "100", "old.raw"):     false,
+		filepath.Join(dir, "Alpha", "100", "old.json"):    false,
+		filepath.Join(dir, "Alpha", "100", "old.imb"):     false,
+		filepath.Join(dir, "Alpha", "100", "old.amb"):     false,
+		filepath.Join(dir, "Alpha", "100", "old.mp3"):     false,
+		filepath.Join(dir, "Alpha", "100", "fresh.json"):  true,
 		filepath.Join(dir, "Alpha", "100", "fresh.wav"):   true,
 		filepath.Join(dir, "Alpha", "100", "config.yaml"): true, // preserved
 	}

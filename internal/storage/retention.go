@@ -209,6 +209,13 @@ func isRecordingArtifact(path string) bool {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".wav", ".flac", ".raw":
 		return true
+	// Per-call sidecars written next to the audio: the trunk-recorder-style
+	// metadata JSON (recordings.write_call_json), the DSD-FME-playable
+	// vocoder containers (recordings.mbe_files) and an MP3 transcode. They
+	// used to outlive the audio they describe, so a long-running rig
+	// accumulated orphan sidecars the sweeper never touched.
+	case ".json", ".imb", ".amb", ".mp3":
+		return true
 	}
 	return false
 }

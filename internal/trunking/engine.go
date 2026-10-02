@@ -1218,6 +1218,8 @@ func (e *Engine) republishCallSource(serial string, g Grant) {
 func (e *Engine) handlePatch(p Patch) {
 	if p.Add {
 		e.patches.Apply(PatchGroup{
+			System:     p.System,
+			Protocol:   p.Protocol,
 			SuperGroup: p.SuperGroup,
 			Members:    p.Members,
 			Vendor:     p.Vendor,

@@ -31,7 +31,23 @@ type HistoryFilter = {
   system?: string;
   group_id?: number;
   source_id?: number;
+  // Free-text search (alias / system / protocol substring, or an exact
+  // talkgroup / RID when numeric), a date range and flag filters — the
+  // search every call-playback front end offers.
+  q?: string;
+  since?: string;
+  until?: string;
+  encrypted?: boolean;
+  emergency?: boolean;
 };
+
+// toRFC3339 turns a <input type="datetime-local"> value (local wall clock,
+// no offset) into the RFC3339 instant the daemon's since/until expect.
+function toRFC3339(local: string): string | undefined {
+  if (!local) return undefined;
+  const d = new Date(local);
+  return Number.isNaN(d.getTime()) ? undefined : d.toISOString();
+}
 
 // selectLastCallEnd picks the timestamp of the newest call.end in the live
 // feed — a primitive, so the zustand subscription only re-renders on a new
@@ -81,6 +97,12 @@ export function History() {
   const [systemInput, setSystemInput] = useState(initSystem);
   const [groupInput, setGroupInput] = useState(initGroup);
   const [sourceInput, setSourceInput] = useState(initSource);
+  const [searchInput, setSearchInput] = useState(searchParams.get("q") ?? "");
+  const [sinceInput, setSinceInput] = useState("");
+  const [untilInput, setUntilInput] = useState("");
+  // "" = any | "encrypted" | "clear" | "emergency"
+  const [flagInput, setFlagInput] = useState("");
+  const [exporting, setExporting] = useState(false);
   const [filter, setFilter] = useState<HistoryFilter>(() => {
     const f: HistoryFilter = { limit: 200 };
     if (initSystem) f.system = initSystem;
@@ -88,6 +110,8 @@ export function History() {
     if (Number.isFinite(g)) f.group_id = g;
     const src = parseInt(initSource, 10);
     if (Number.isFinite(src)) f.source_id = src;
+    const q = searchParams.get("q");
+    if (q) f.q = q;
     return f;
   });
 
@@ -157,6 +181,14 @@ export function History() {
     if (Number.isFinite(gid)) next.group_id = gid;
     const src = parseInt(sourceInput, 10);
     if (Number.isFinite(src)) next.source_id = src;
+    if (searchInput.trim()) next.q = searchInput.trim();
+    const since = toRFC3339(sinceInput);
+    if (since) next.since = since;
+    const until = toRFC3339(untilInput);
+    if (until) next.until = until;
+    if (flagInput === "encrypted") next.encrypted = true;
+    if (flagInput === "clear") next.encrypted = false;
+    if (flagInput === "emergency") next.emergency = true;
     setFilter(next);
   }
 
@@ -165,7 +197,34 @@ export function History() {
     setSystemInput("");
     setGroupInput("");
     setSourceInput("");
+    setSearchInput("");
+    setSinceInput("");
+    setUntilInput("");
+    setFlagInput("");
     setFilter({ limit: 200 });
+  }
+
+  // Export the CURRENT filter as CSV (the daemon renders ?format=csv). The
+  // blob round-trip is what lets the bearer token ride along; a bare link
+  // could not carry it.
+  async function exportCSV() {
+    setExporting(true);
+    try {
+      const blob = await api.historyCSV(cfg, { ...filter, limit: filter.limit ?? 1000 });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `gophertrunk-calls-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      notify("success", `Exported ${rows.length} call${rows.length === 1 ? "" : "s"} as CSV`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "history export failed");
+    } finally {
+      setExporting(false);
+    }
   }
 
   const columns: Column<CallRow>[] = useMemo(
@@ -327,6 +386,51 @@ export function History() {
         onSubmit={applyFilter}
         className="panel p-3 grid grid-cols-2 sm:grid-cols-5 gap-2 items-end"
       >
+        <label className="text-xs space-y-1 col-span-2">
+          <span className="text-muted uppercase tracking-wider">Search</span>
+          <input
+            type="search"
+            className="input w-full"
+            placeholder="alias, system, protocol, TG or RID"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            aria-label="Search calls"
+          />
+        </label>
+        <label className="text-xs space-y-1">
+          <span className="text-muted uppercase tracking-wider">From</span>
+          <input
+            type="datetime-local"
+            className="input w-full"
+            value={sinceInput}
+            onChange={(e) => setSinceInput(e.target.value)}
+            aria-label="From"
+          />
+        </label>
+        <label className="text-xs space-y-1">
+          <span className="text-muted uppercase tracking-wider">To</span>
+          <input
+            type="datetime-local"
+            className="input w-full"
+            value={untilInput}
+            onChange={(e) => setUntilInput(e.target.value)}
+            aria-label="To"
+          />
+        </label>
+        <label className="text-xs space-y-1">
+          <span className="text-muted uppercase tracking-wider">Flags</span>
+          <select
+            className="input w-full"
+            value={flagInput}
+            onChange={(e) => setFlagInput(e.target.value)}
+            aria-label="Flags"
+          >
+            <option value="">Any</option>
+            <option value="encrypted">Encrypted only</option>
+            <option value="clear">Clear only</option>
+            <option value="emergency">Emergency only</option>
+          </select>
+        </label>
         <label className="text-xs space-y-1">
           <span className="text-muted uppercase tracking-wider">Limit</span>
           <input
@@ -380,6 +484,15 @@ export function History() {
             onClick={clearFilter}
           >
             Clear
+          </button>
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={exportCSV}
+            disabled={exporting || rows.length === 0}
+            title="Download the current filter as CSV"
+          >
+            {exporting ? "Exporting…" : "CSV"}
           </button>
         </div>
       </form>

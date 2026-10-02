@@ -42,7 +42,13 @@ type callMeta struct {
 	// `talkgroup` is the target radio's SSI rather than a real talkgroup. Lets a
 	// consumer render the recording as an individual call instead of mistaking the
 	// radio ID for a talkgroup. Omitted (false) for ordinary group calls.
-	Individual           bool   `json:"individual,omitempty"`
+	Individual bool `json:"individual,omitempty"`
+	// AlgorithmID / KeyID are the P25 ALGID / DMR algorithm and key
+	// identifier the call's encryption signalling carried (omitted for a
+	// clear call) — so a consumer can tell an ADP call from AES without
+	// opening the daemon's database.
+	AlgorithmID          uint8  `json:"algorithm_id,omitempty"`
+	KeyID                uint16 `json:"key_id,omitempty"`
 	TalkgroupTag         string `json:"talkgroup_tag"`
 	TalkgroupDescription string `json:"talkgroup_description"`
 	TalkgroupGroupTag    string `json:"talkgroup_group_tag"`
@@ -135,6 +141,8 @@ func buildCallMeta(cs trunking.CallStart, startedAt, endedAt time.Time, callNum 
 		CallLengthMs: dur.Milliseconds(),
 		Talkgroup:    g.GroupID,
 		Individual:   g.Individual,
+		AlgorithmID:  g.AlgorithmID,
+		KeyID:        g.KeyID,
 		ColorCode:    -1, // trunk-recorder "unknown" sentinel
 		AudioType:    audioType,
 		ShortName:    g.System,

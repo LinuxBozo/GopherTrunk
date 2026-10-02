@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -264,6 +266,18 @@ type HistoryFilter struct {
 	Until     time.Time
 	Limit     int
 	OnlyEnded bool
+	// Query is a free-text search: a case-insensitive substring match
+	// against the talkgroup alias, the source alias, the system name and
+	// the protocol, or an exact match on the talkgroup / source ID when the
+	// text is a number. Empty = no filter. This is the "search by name"
+	// every call-playback front end (rdio-scanner, OpenMHz) offers.
+	Query string
+	// Encrypted / Emergency, when non-nil, keep only rows whose flag equals
+	// the pointed-to value.
+	Encrypted *bool
+	Emergency *bool
+	// Protocol narrows to one protocol name (e.g. "p25", "dmr-tier2").
+	Protocol string
 }
 
 // CallRow is one row from the call_log table.
@@ -343,6 +357,28 @@ func (d *DB) History(ctx context.Context, f HistoryFilter) ([]CallRow, error) {
 	}
 	if f.OnlyEnded {
 		q += " AND ended_at IS NOT NULL"
+	}
+	if f.Protocol != "" {
+		q += " AND protocol = ?"
+		args = append(args, f.Protocol)
+	}
+	if f.Encrypted != nil {
+		q += " AND encrypted = ?"
+		args = append(args, boolInt(*f.Encrypted))
+	}
+	if f.Emergency != nil {
+		q += " AND emergency = ?"
+		args = append(args, boolInt(*f.Emergency))
+	}
+	if t := strings.TrimSpace(f.Query); t != "" {
+		like := "%" + strings.ToLower(t) + "%"
+		q += " AND (LOWER(COALESCE(talkgroup_alpha,'')) LIKE ? OR LOWER(COALESCE(source_alpha,'')) LIKE ? OR LOWER(system) LIKE ? OR LOWER(protocol) LIKE ?"
+		args = append(args, like, like, like, like)
+		if n, err := strconv.ParseUint(t, 10, 32); err == nil {
+			q += " OR group_id = ? OR source_id = ?"
+			args = append(args, n, n)
+		}
+		q += ")"
 	}
 	q += " ORDER BY started_at DESC"
 	if f.Limit > 0 {
@@ -600,6 +636,13 @@ func (d *DB) RIDSummaries(ctx context.Context, f RIDSummaryFilter) ([]RIDSummary
 }
 
 func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+func boolInt(b bool) int {
 	if b {
 		return 1
 	}

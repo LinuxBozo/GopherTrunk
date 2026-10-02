@@ -99,6 +99,10 @@ func (s *storageHistory) History(ctx context.Context, f HistoryFilter) ([]CallRo
 		Until:     f.Until,
 		Limit:     f.Limit,
 		OnlyEnded: f.OnlyEnded,
+		Query:     f.Query,
+		Protocol:  f.Protocol,
+		Encrypted: f.Encrypted,
+		Emergency: f.Emergency,
 	})
 	if err != nil {
 		return nil, err
@@ -119,6 +123,7 @@ func (s *storageHistory) History(ctx context.Context, f HistoryFilter) ([]CallRo
 			DataCall:       r.DataCall,
 			Individual:     r.Individual,
 			Timeslot:       r.Timeslot,
+			Priority:       r.Priority,
 			DeviceSerial:   r.DeviceSerial,
 			StartedAt:      r.StartedAt,
 			EndedAt:        r.EndedAt,

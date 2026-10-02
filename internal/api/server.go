@@ -34,6 +34,13 @@ type EngineSnapshot interface {
 	IsKnownRadio(id uint32) bool
 }
 
+// PatchProvider exposes the engine's active patch / supergroup table
+// (Engine.Patches). Optional; when nil GET /api/v1/patches returns an empty
+// list.
+type PatchProvider interface {
+	Patches() []trunking.PatchGroup
+}
+
 // EngineMutator is the optional write side of the engine. Daemons
 // that have AllowMutations enabled supply a real engine; tests can
 // inject a fake. When nil the end-call route returns 503.
@@ -300,6 +307,7 @@ type Server struct {
 	history      HistoryQuery
 	locations    LocationQuery
 	affiliations AffiliationProvider
+	patches      PatchProvider
 	sites        SitesProvider
 	grants       GrantsProvider
 	metrics      http.Handler
@@ -666,6 +674,13 @@ type HistoryFilter struct {
 	Until     time.Time
 	Limit     int
 	OnlyEnded bool
+	// Query is a free-text search (alias / system / protocol substring, or
+	// an exact talkgroup / RID when numeric); Protocol narrows to one
+	// protocol; Encrypted / Emergency filter on the flag when non-nil.
+	Query     string
+	Protocol  string
+	Encrypted *bool
+	Emergency *bool
 }
 
 // CallRow mirrors storage.CallRow as a JSON-friendly row. Lives in the
@@ -689,7 +704,9 @@ type CallRow struct {
 	// call as individual instead of mistaking the radio ID for a talkgroup.
 	Individual bool `json:"individual,omitempty"`
 	// Timeslot is the 1-based DMR TDMA slot (0 = n/a, 1 = TS1, 2 = TS2).
-	Timeslot       uint8     `json:"timeslot,omitempty"`
+	Timeslot uint8 `json:"timeslot,omitempty"`
+	// Priority is the call's on-air signalled priority (0 = none).
+	Priority       uint8     `json:"priority,omitempty"`
 	DeviceSerial   string    `json:"device_serial"`
 	StartedAt      time.Time `json:"started_at"`
 	EndedAt        time.Time `json:"ended_at,omitempty"`
@@ -733,6 +750,9 @@ type ServerOptions struct {
 	// Locations is optional. When non-nil the server exposes
 	// GET /api/v1/locations for the web map.
 	Locations LocationQuery
+	// Patches is optional. When non-nil GET /api/v1/patches serves the
+	// live patch/supergroup table (P25 Motorola/Harris regroups).
+	Patches PatchProvider
 	// Affiliations is optional. When non-nil the server exposes
 	// GET /api/v1/affiliations (the unit-activity table).
 	Affiliations AffiliationProvider
@@ -1073,6 +1093,7 @@ func NewServer(opts ServerOptions) (*Server, error) {
 		history:        opts.History,
 		locations:      opts.Locations,
 		affiliations:   opts.Affiliations,
+		patches:        opts.Patches,
 		sites:          opts.Sites,
 		grants:         opts.Grants,
 		metrics:        opts.MetricsHandler,
@@ -1266,6 +1287,7 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/v1/calls/{id}/audio", s.handleCallAudio)
 	mux.HandleFunc("GET /api/v1/locations", s.handleLocations)
 	mux.HandleFunc("GET /api/v1/affiliations", s.handleAffiliations)
+	mux.HandleFunc("GET /api/v1/patches", s.handlePatches)
 	mux.HandleFunc("GET /api/v1/grants", s.handleGrants)
 	mux.HandleFunc("GET /api/v1/sites", s.handleListSites)
 	mux.HandleFunc("GET /api/v1/rids", s.handleListRIDs)

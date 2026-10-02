@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"sort"
 	"strconv"
 
 	"github.com/MattCheramie/GopherTrunk/internal/trunking"
@@ -43,4 +44,25 @@ func (s *Server) handleAffiliations(w http.ResponseWriter, _ *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"affiliations": units})
+}
+
+// handlePatches serves GET /api/v1/patches: the engine's live patch /
+// supergroup table — every active Motorola or Harris regroup with its
+// member talkgroups. Until now the table was consulted only internally
+// (grant attribution) and surfaced as transient `patch` events, so a
+// client that connected after the patch was announced could not learn it.
+func (s *Server) handlePatches(w http.ResponseWriter, _ *http.Request) {
+	patches := []trunking.PatchGroup{}
+	if s.patches != nil {
+		if snap := s.patches.Patches(); snap != nil {
+			patches = snap
+		}
+	}
+	sort.Slice(patches, func(i, j int) bool {
+		if patches[i].System != patches[j].System {
+			return patches[i].System < patches[j].System
+		}
+		return patches[i].SuperGroup < patches[j].SuperGroup
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"patches": patches})
 }

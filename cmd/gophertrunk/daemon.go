@@ -3008,6 +3008,9 @@ func (d *Daemon) buildAPIServer(cfg config.Config, version string, log *slog.Log
 		if d.affiliations != nil {
 			opts.Affiliations = affiliationProvider{d.affiliations}
 		}
+		if d.engine != nil {
+			opts.Patches = d.engine
+		}
 		if d.siteTracker != nil {
 			opts.Sites = sitesProvider{d.siteTracker}
 		}
