@@ -1550,9 +1550,16 @@ confirmation before any close-as-completed.
   siglab decodes far faster than real time and `replayVoiceSource.push` discarded every chunk
   with no subscriber, so the chunks between the grant and the composer's chain subscribing —
   the headers, the PI header that NAMES THE KEY, the first LDUs, a whole short over — were lost;
-  the source now keeps a 1 s pre-roll for each new subscriber and, once the engine starts a
-  call on the replay device (CallStart — a grant the engine does not serve never holds the
-  decode), holds the decode (≤1 s) until that call's chain listens. Pinned failing-first by
+  the source now keeps a 1 s pre-roll for each new subscriber and, once a grant is on the bus
+  with no chain listening, holds the decode (≤5 s) until a chain subscribes. The grant is read
+  off a bus subscription drained ON THE DECODE GOROUTINE at the top of each push (`watchGrants`;
+  `Bus.Publish` enqueues synchronously), because the first version armed on CallStart via an
+  async listener and PR #1234's CI (-race, loaded runner) lost the call: the decode raced past
+  the pre-roll before the start arrived (`TestReplayVoiceSourceHoldsOnGrantBeforeCallStart`,
+  failing-first). The same CI run's other half: the composer's hangtime and no-voice startup
+  window (2× hangtime) are WALL-CLOCK, and the test's 500 ms hangtime let a starved chain be
+  torn down before its first voice frame — tests of the replay voice path must use
+  `replayDefaultVoiceHangtimeMs` (3.5 s), never a tight value. Pinned failing-first by
   `TestReplayDecryptsRealAirEnhancedPrivacyFromDiscAudio`: the committed real-air ciphertext
   (`ep_issue1187_ptt1.json`) re-framed into a keyup (noise → Voice LC Headers → PI headers → the
   three captured superframes with their EMB/embedded LC → noise), discriminated to a 96 kHz WAV,

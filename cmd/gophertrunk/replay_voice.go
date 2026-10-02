@@ -36,12 +36,19 @@ const replayVoiceSerial = "replay-voice:1"
 // the whole call. Live that window is milliseconds; in replay it was the call.
 // Two things close it: the source keeps the last replayVoicePrerollSeconds of
 // IQ and hands it to each new subscriber first (the daemon's DMO voice tap does
-// the same, ccdecoder.voiceFanout), and once the engine has started a call on
-// this device (CallStart) push waits — bounded by replayVoiceSubscribeWait —
-// for that call's chain to subscribe instead of racing on. A grant the engine
-// does not serve starts no call and so never holds the decode. A new chain's
-// pre-roll can carry up to a second of the previous over's tail when calls
-// follow each other that closely.
+// the same, ccdecoder.voiceFanout), and once a grant is on the bus with no
+// chain listening, push waits — bounded by replayVoiceSubscribeWait — for a
+// chain to subscribe instead of racing on. The grant is read off the bus ON
+// THE DECODE GOROUTINE (watchGrants): siglab publishes it synchronously while
+// decoding the previous chunk, so the hold arms before the next chunk however
+// slowly the engine turns the grant into a CallStart. Arming on the CallStart
+// alone (via an asynchronous bus listener) lost the whole call on a loaded
+// -race CI runner: the decode raced past the 1 s pre-roll before the start
+// arrived. CallStart still arms the hold too (a grant the engine sat on, or
+// one dropped from a full subscription buffer). A grant the engine never
+// serves costs one bounded wait. A new chain's pre-roll can carry up to a
+// second of the previous over's tail when calls follow each other that
+// closely.
 type replayVoiceSource struct {
 	rateBits atomic.Uint64 // float64 DDC rate, learned from the first push
 
@@ -52,16 +59,31 @@ type replayVoiceSource struct {
 	starts uint64        // calls the engine started on this device
 	joins  uint64        // chains that subscribed (or were given up on)
 	subbed chan struct{} // closed (and replaced) whenever a chain subscribes
+	// granted is set when push sees a grant on the bus while no chain is
+	// listening, and cleared by the next subscription or the wait's expiry.
+	granted bool
+
+	// grants is the decode goroutine's own bus subscription (watchGrants),
+	// drained without blocking at the top of every push. Only push touches it.
+	grants *events.Subscription
 }
 
 const (
+	// replayDefaultVoiceHangtimeMs is `replay -voice-hangtime-ms`'s default.
+	// The composer's hangtime and its no-voice startup window (2× hangtime)
+	// run on the WALL clock, so they must also cover a voice chain that
+	// decodes slower than real time on a starved machine.
+	replayDefaultVoiceHangtimeMs = 3500
 	// replayVoicePrerollSeconds is how much IQ a new chain receives from
 	// before its subscription: 1 s, the length the DMO pre-roll measured best.
 	replayVoicePrerollSeconds = 1.0
 	// replayVoiceSubscribeWait bounds how long push holds the decode after a
-	// call start waiting for its chain to subscribe (a protocol with no
-	// IQ-consuming chain never subscribes; the decode then carries on).
-	replayVoiceSubscribeWait = time.Second
+	// grant or call start waiting for a chain to subscribe (a grant the engine
+	// does not serve, or a protocol with no IQ-consuming chain, never
+	// subscribes; the decode then carries on). It only has to outlast the
+	// engine → composer → StreamIQ hops on a loaded machine, and a served
+	// grant ends it as soon as the chain subscribes.
+	replayVoiceSubscribeWait = 5 * time.Second
 )
 
 type replayVoiceSub struct {
@@ -102,6 +124,7 @@ func (s *replayVoiceSource) StreamIQ(ctx context.Context) (<-chan []complex64, e
 	}
 	s.subs[id] = sub
 	s.joins++
+	s.granted = false
 	close(s.subbed)
 	s.subbed = make(chan struct{})
 	s.mu.Unlock()
@@ -126,18 +149,51 @@ func (s *replayVoiceSource) expectSubscriber() {
 	s.mu.Unlock()
 }
 
+// watchGrants hands the source a bus subscription for push to drain on the
+// decode goroutine. It must be called before the decode starts.
+func (s *replayVoiceSource) watchGrants(sub *events.Subscription) { s.grants = sub }
+
+// sawGrant drains the decode goroutine's subscription without blocking and
+// reports whether a grant was published since the last push. Everything
+// siglab published while decoding the previous chunk is already queued:
+// Bus.Publish enqueues synchronously.
+func (s *replayVoiceSource) sawGrant() bool {
+	if s.grants == nil {
+		return false
+	}
+	saw := false
+	for {
+		select {
+		case ev, ok := <-s.grants.C:
+			if !ok {
+				s.grants = nil
+				return saw
+			}
+			if ev.Kind == events.KindGrant {
+				saw = true
+			}
+		default:
+			return saw
+		}
+	}
+}
+
 // push fans one channelized IQ chunk to every following voice chain, copying it
 // (siglab reuses the backing array) and blocking until each consumer takes it
 // (backpressure — see the type comment). A sub cancelled mid-send is skipped via
 // its done channel rather than deadlocking. With no subscriber the chunk only
-// joins the pre-roll ring — after a call start, once its chain has subscribed
-// or the wait expired.
+// joins the pre-roll ring — after a grant or call start, once a chain has
+// subscribed or the wait expired.
 func (s *replayVoiceSource) push(iq []complex64, rateHz float64) {
 	if rateHz > 0 {
 		s.rateBits.Store(math.Float64bits(rateHz))
 	}
+	granted := s.sawGrant()
 	s.mu.Lock()
-	if len(s.subs) == 0 && s.starts > s.joins {
+	if granted && len(s.subs) == 0 {
+		s.granted = true
+	}
+	if len(s.subs) == 0 && (s.granted || s.starts > s.joins) {
 		subbed := s.subbed
 		s.mu.Unlock()
 		select {
@@ -145,6 +201,7 @@ func (s *replayVoiceSource) push(iq []complex64, rateHz float64) {
 		case <-time.After(replayVoiceSubscribeWait):
 		}
 		s.mu.Lock()
+		s.granted = false
 		if s.joins < s.starts {
 			s.joins = s.starts // give up on the missing chain(s)
 		}
@@ -286,9 +343,11 @@ func setupReplayVoice(outDir string, rateHz float64, hangtime time.Duration, aud
 		bus: bus, src: src, engine: engine, composer: comp, recorder: rec,
 		cancel: cancel, hangtime: hangtime,
 	}
-	// Every call the engine starts on the replay device arms the source's
-	// wait-for-subscriber (see replayVoiceSource): the decode holds until the
+	// A grant on the bus arms the source's wait-for-subscriber from the
+	// decode goroutine itself (see replayVoiceSource); every call the engine
+	// starts on the replay device arms it too. The decode holds until the
 	// call's chain is listening.
+	src.watchGrants(bus.Subscribe())
 	grants := bus.Subscribe()
 	rig.wg.Add(1)
 	go func() {

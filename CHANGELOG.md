@@ -43,8 +43,7 @@ for tagged releases.
   dropped. That window held the headers, the DMR Privacy Indicator header
   that names the key, and the first P25 LDUs, and on a short over the whole
   call. The replay voice source now keeps a 1 s pre-roll for each new chain
-  and, once the engine starts a call, holds the decode until that call's chain
-  is listening.
+  and, once a grant is decoded, holds the decode until a chain is listening.
 - **A data race between a recording call and the engine watchdog.**
   `VoicePool.Active()` handed out the pool's live call entries, so the
   watchdog and the REST/gRPC active-calls views read `LastHeardAt` and the

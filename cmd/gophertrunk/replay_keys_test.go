@@ -19,6 +19,7 @@ import (
 
 	"github.com/MattCheramie/GopherTrunk/internal/dsp/demod"
 	"github.com/MattCheramie/GopherTrunk/internal/dsp/filter"
+	"github.com/MattCheramie/GopherTrunk/internal/events"
 	"github.com/MattCheramie/GopherTrunk/internal/radio/dmr"
 	dmrvoice "github.com/MattCheramie/GopherTrunk/internal/radio/dmr/voice"
 	"github.com/MattCheramie/GopherTrunk/internal/radio/framing"
@@ -402,7 +403,12 @@ func TestReplayDecryptsRealAirEnhancedPrivacyFromDiscAudio(t *testing.T) {
 		log := slog.New(slog.NewTextHandler(logw, &slog.HandlerOptions{Level: slog.LevelDebug}))
 		outDir := t.TempDir()
 		proto := trunking.ProtocolDMRTier2
-		rig, err := setupReplayVoice(outDir, 48_000, 500*time.Millisecond, nil, replayKeyResolver(keys, log), log)
+		// The replay default hangtime, not a tight test value: the composer's
+		// no-voice startup window (2× hangtime) is wall-clock, and a loaded
+		// -race CI runner took a whole second to get the chain through the
+		// headers — with 500 ms the call was torn down before its first
+		// voice frame (0 or 18 of 54 frames recorded).
+		rig, err := setupReplayVoice(outDir, 48_000, replayDefaultVoiceHangtimeMs*time.Millisecond, nil, replayKeyResolver(keys, log), log)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -554,5 +560,54 @@ func TestReplayVoiceSourcePrerollAndCallStartWait(t *testing.T) {
 	src3.push([]complex64{1}, 0)
 	if d := time.Since(start); d > 200*time.Millisecond {
 		t.Fatalf("push stalled %v for a chain that had already subscribed", d)
+	}
+}
+
+// The hold must not depend on how fast the engine turns a grant into a
+// CallStart. CI (-race, loaded runner) recorded nothing from the #1187 replay
+// test: the grant → engine → CallStart → bus-listener hops lagged while the
+// decode raced on, so by the time the chain subscribed the 1 s pre-roll held
+// only the trailing noise. The source now reads the grant off the bus on the
+// decode goroutine itself (siglab publishes it synchronously while processing
+// the chunk before), so the next push holds no matter how slow the rest is.
+func TestReplayVoiceSourceHoldsOnGrantBeforeCallStart(t *testing.T) {
+	bus := events.NewBus(64)
+	defer bus.Close()
+	src := newReplayVoiceSource(1000) // 1 s pre-roll = 1000 samples
+	src.watchGrants(bus.Subscribe())
+
+	src.push([]complex64{-1}, 0) // the chunk whose decode produces the grant
+	bus.Publish(events.Event{Kind: events.KindGrant, Payload: trunking.Grant{GroupID: 1}})
+	// No CallStart is ever reported: the engine hop is arbitrarily slow.
+	pushed := make(chan struct{})
+	go func() {
+		defer close(pushed)
+		for i := 0; i < 3000; i++ { // 3 s of stream: overruns the ring without a hold
+			src.push([]complex64{complex(float32(i), 0)}, 0)
+		}
+	}()
+	time.Sleep(200 * time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ch, err := src.StreamIQ(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := <-ch
+	if len(first) == 0 || first[0] != -1 {
+		head := first
+		if len(head) > 3 {
+			head = head[:3]
+		}
+		t.Fatalf("chain's first chunk starts %v, want the grant chunk (-1): the decode ran on past the grant", head)
+	}
+	go func() { // keep the producer moving
+		for range ch {
+		}
+	}()
+	select {
+	case <-pushed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("push still blocked after the chain subscribed")
 	}
 }
