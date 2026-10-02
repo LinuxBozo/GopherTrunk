@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -552,15 +553,15 @@ func validateSystem(i int, s SystemConfig) error {
 	}
 	seenKeyIDs := make(map[uint16]struct{}, len(s.EncryptionKeys))
 	for k, ek := range s.EncryptionKeys {
-		switch strings.ToLower(strings.TrimSpace(ek.Algorithm)) {
-		case "rc4", "arc4", "adp":
-			// supported: DMR Enhanced Privacy and P25 ADP, one RC4 family
+		alg := ek.NormalizedAlgorithm()
+		switch alg {
+		case "rc4", "des", "tdes", "aes":
+			// supported: the RC4 family (DMR Enhanced Privacy / P25 ADP) and
+			// the P25 OFB family (DES-OFB, two-/three-key TDES, AES-128/256)
 		case "":
-			return fmt.Errorf("trunking.systems[%d].encryption_keys[%d]: algorithm is required (use \"rc4\" or \"adp\")", i, k)
-		case "aes", "des":
-			return fmt.Errorf("trunking.systems[%d].encryption_keys[%d]: algorithm %q is not supported yet (only \"rc4\" / \"adp\")", i, k, ek.Algorithm)
+			return fmt.Errorf("trunking.systems[%d].encryption_keys[%d]: algorithm is required (use \"rc4\", \"adp\", \"des\", \"tdes\" or \"aes\")", i, k)
 		default:
-			return fmt.Errorf("trunking.systems[%d].encryption_keys[%d]: unknown algorithm %q (use \"rc4\" or \"adp\")", i, k, ek.Algorithm)
+			return fmt.Errorf("trunking.systems[%d].encryption_keys[%d]: unknown algorithm %q (use \"rc4\", \"adp\", \"des\", \"tdes\" or \"aes\")", i, k, ek.Algorithm)
 		}
 		if _, dup := seenKeyIDs[ek.KeyID]; dup {
 			return fmt.Errorf("trunking.systems[%d].encryption_keys[%d]: duplicate key_id %d", i, k, ek.KeyID)
@@ -569,6 +570,17 @@ func validateSystem(i int, s SystemConfig) error {
 		b, err := decodeHexKey(ek.Key)
 		if err != nil {
 			return fmt.Errorf("trunking.systems[%d].encryption_keys[%d]: %w", i, k, err)
+		}
+		if want := EncryptionKeyLengths(alg); len(want) > 0 {
+			okLen := false
+			for _, w := range want {
+				if len(b) == w {
+					okLen = true
+				}
+			}
+			if !okLen {
+				return fmt.Errorf("trunking.systems[%d].encryption_keys[%d]: a %s key is %s bytes (%s hex digits), got %d bytes", i, k, alg, joinInts(want), joinInts(scale(want, 2)), len(b))
+			}
 		}
 		if len(b) > 32 {
 			return fmt.Errorf("trunking.systems[%d].encryption_keys[%d]: key is %d bytes, must be 1..32", i, k, len(b))
@@ -1143,4 +1155,37 @@ func decodeHexKey(s string) ([]byte, error) {
 		return nil, fmt.Errorf("key is not valid hex: %w", err)
 	}
 	return b, nil
+}
+
+// EncryptionKeyLengths returns the key sizes (bytes) the decoders accept
+// for a normalised algorithm name: DES-OFB 8, TDES 16 (two-key) or 24,
+// AES 16 (AES-128) or 32 (AES-256). The RC4 family is left unconstrained
+// here (DMR Enhanced Privacy and P25 ADP both use 40-bit keys, but the
+// voice chains check the exact length against the header they decode).
+func EncryptionKeyLengths(alg string) []int {
+	switch alg {
+	case "des":
+		return []int{8}
+	case "tdes":
+		return []int{16, 24}
+	case "aes":
+		return []int{16, 32}
+	}
+	return nil
+}
+
+func joinInts(v []int) string {
+	parts := make([]string, len(v))
+	for i, x := range v {
+		parts[i] = strconv.Itoa(x)
+	}
+	return strings.Join(parts, " or ")
+}
+
+func scale(v []int, k int) []int {
+	out := make([]int, len(v))
+	for i, x := range v {
+		out[i] = x * k
+	}
+	return out
 }

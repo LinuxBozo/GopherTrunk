@@ -313,7 +313,7 @@ function SystemEditor(props: { sys: SystemConfig; onChange: (next: SystemConfig)
           onChange={(x) => onChange({ ...sys, EncryptionKeys: x })}
           makeNew={() => ({ KeyID: 0, Algorithm: "rc4", Key: "" })}
           itemTitle={(e) => `Key ID ${e.KeyID}`}
-          emptyHint="Operator-supplied decryption keys (DMR RC4 / Enhanced Privacy)."
+          emptyHint="Operator-supplied decryption keys (DMR RC4 / Enhanced Privacy, P25 ADP, DES-OFB, TDES, AES)."
           renderItem={(e, set) => (
             <div className="grid gap-3 sm:grid-cols-3">
               <NumberField label="Key ID" value={e.KeyID} onChange={(v) => set({ ...e, KeyID: v })} />
@@ -321,7 +321,12 @@ function SystemEditor(props: { sys: SystemConfig; onChange: (next: SystemConfig)
                 label="Algorithm"
                 value={e.Algorithm}
                 onChange={(v) => set({ ...e, Algorithm: v })}
-                options={[{ value: "rc4", label: "rc4 (DMR Enhanced Privacy)" }]}
+                options={[
+                  { value: "rc4", label: "rc4 (DMR Enhanced Privacy / P25 ADP)" },
+                  { value: "des", label: "des (P25 DES-OFB)" },
+                  { value: "tdes", label: "tdes (P25 Triple-DES)" },
+                  { value: "aes", label: "aes (P25 AES-128 / AES-256)" },
+                ]}
               />
               <TextField label="Key (hex)" value={e.Key} onChange={(v) => set({ ...e, Key: v })} />
             </div>

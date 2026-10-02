@@ -10,8 +10,11 @@
 //   - ADP (RC4, ALGID 0xAA): RC4 keyed with the 5-octet key followed by the
 //     first 8 octets of the MI, discarding the first 256 keystream bytes.
 //   - DES-OFB (0x81): single-DES in OFB, IV = first 8 octets of the MI.
-//   - AES-128/256 (0x85 / 0x84 / 0x89): AES in OFB, IV = the MI left-justified
-//     into a 16-byte block.
+//   - AES-128/256 (0x85 / 0x84 / 0x89): AES in OFB, IV = the 64-bit MI
+//     expanded to 128 bits by the TIA-102.AAAD LFSR (ExpandMI): the MI
+//     itself followed by the LFSR state after 64 clocks — OP25
+//     expand_mi_to_128 / DSD-FME LFSR128, the construction proven on air by
+//     both.
 //
 // These are the byte-stream keystreams; mapping them onto a specific protocol
 // payload (e.g. the exact IMBE voice-bit positions) is the caller's concern.
@@ -115,7 +118,7 @@ func Keystream(algid uint8, key, mi []byte, n int) ([]byte, error) {
 	case AlgTDES:
 		return ofbKeystream(newTDES, key, miIV(mi, des.BlockSize), n)
 	case AlgAES128, AlgAES256, AlgAES256OFB:
-		return ofbKeystream(newAES, key, miIV(mi, aes.BlockSize), n)
+		return ofbKeystream(newAES, key, ExpandMI(miBytes(mi, 8)), n)
 	}
 	return nil, fmt.Errorf("p25crypto: unsupported algorithm 0x%02X", algid)
 }
@@ -147,10 +150,45 @@ func ofbKeystream(newBlock func([]byte) (cipher.Block, error), key, iv []byte, n
 	return out, nil
 }
 
+// ExpandMI expands the 64-bit Message Indicator (its first 8 octets; a
+// shorter slice is zero-padded) into the 128-bit AES IV TIA-102.AAAD
+// prescribes: the MI's 64 bits are clocked through the LFSR
+// x^64 + x^62 + x^46 + x^38 + x^27 + x^15 + 1 sixty-four times, the bits
+// shifted OUT form IV[0:8] (which is the MI itself, MSB first) and the
+// register left behind forms IV[8:16]. This is OP25's expand_mi_to_128
+// (op25_crypt_algs.cc) and DSD-FME's LFSR128, both on-air proven; the
+// second half is the same step the ES uses to announce the next
+// superframe's MI, so IV = MI ‖ next-MI.
+func ExpandMI(mi []byte) []byte {
+	var v uint64
+	for i := 0; i < 8; i++ {
+		var b byte
+		if i < len(mi) {
+			b = mi[i]
+		}
+		v = v<<8 | uint64(b)
+	}
+	var out uint64
+	for i := 0; i < 64; i++ {
+		ov := (v >> 63) & 1
+		fb := ((v >> 63) ^ (v >> 61) ^ (v >> 45) ^ (v >> 37) ^ (v >> 26) ^ (v >> 14)) & 1
+		v = v<<1 | fb
+		out = out<<1 | ov
+	}
+	iv := make([]byte, 16)
+	for i := 7; i >= 0; i-- {
+		iv[i] = byte(out)
+		out >>= 8
+	}
+	for i := 15; i >= 8; i-- {
+		iv[i] = byte(v)
+		v >>= 8
+	}
+	return iv
+}
+
 // miIV left-justifies the MI into a size-byte IV block (zero-padded /
-// truncated), the simplest documented expansion. The exact TIA MI→IV
-// expansion for AES is a refinement; for DES the 64-bit IV is the MI's first 8
-// octets exactly.
+// truncated): for DES the 64-bit IV is the MI's first 8 octets exactly.
 func miIV(mi []byte, size int) []byte {
 	iv := make([]byte, size)
 	copy(iv, miBytes(mi, size))

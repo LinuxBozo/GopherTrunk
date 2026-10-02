@@ -1314,6 +1314,12 @@ trunking:
   #       - key_id: 1                   # the KID the LDU2 Encryption Sync names
   #         algorithm: adp              # P25 ADP = RC4
   #         key: "1234567890"           # 40-bit key, hex
+  #       - key_id: 2
+  #         algorithm: aes              # P25 AES-256 (ALGID 0x84); 32 hex digits = AES-128
+  #         key: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+  #       - key_id: 3
+  #         algorithm: des              # P25 DES-OFB (ALGID 0x81)
+  #         key: "0123456789abcdef"
 
 # Police-scanner subsystems:
 #   - scan_mode controls the engine's per-grant gate. "all" follows every

@@ -256,7 +256,7 @@ var fieldMetas = map[string]FieldMeta{
 	"NXDNBandPlanTableEntryConfig.FreqHz":  {Label: "Frequency", Hz: true, Help: "Downlink frequency this channel maps to."},
 
 	"EncryptionKeyConfig.KeyID":     {Label: "Key ID", Help: "Key identifier the radios carry in the privacy header, so a system that rotates keys still resolves."},
-	"EncryptionKeyConfig.Algorithm": {Help: "Decryption algorithm. Today only DMR RC4 (Enhanced Privacy).", Options: opts("rc4", "rc4 (DMR Enhanced Privacy)")},
+	"EncryptionKeyConfig.Algorithm": {Help: "Decryption algorithm: rc4 covers DMR Enhanced Privacy and P25 ADP (40-bit key); des = P25 DES-OFB (64-bit); tdes = P25 Triple-DES (128/192-bit); aes = P25 AES-128/256 (the key length picks the variant).", Options: opts("rc4", "rc4 (DMR Enhanced Privacy / P25 ADP)", "des", "des (P25 DES-OFB)", "tdes", "tdes (P25 Triple-DES)", "aes", "aes (P25 AES-128 / AES-256)")},
 	"EncryptionKeyConfig.Key":       {Help: "Raw key, hex-encoded. Spaces and a 0x prefix are tolerated."},
 
 	"SystemConfig.Sites":   {Label: "Sites", Help: "Optional human-readable names for the P25 sites of this system, keyed by RFSS/Site. Presentation metadata only — surfaced via GET /api/v1/sites. P25 only."},

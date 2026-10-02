@@ -1888,13 +1888,28 @@ type EncryptionKeyConfig struct {
 func (k EncryptionKeyConfig) KeyBytes() ([]byte, error) { return decodeHexKey(k.Key) }
 
 // NormalizedAlgorithm is the canonical lower-case algorithm name the
-// decoders match on: "rc4" for every spelling of the RC4 family — "rc4" /
-// "arc4" (DMR Enhanced Privacy) and "adp" (P25 Advanced Digital Privacy,
-// ALGID 0xAA, the same cipher keyed the same way).
+// decoders match on:
+//   - "rc4" for every spelling of the RC4 family — "rc4" / "arc4" (DMR
+//     Enhanced Privacy) and "adp" (P25 Advanced Digital Privacy, ALGID
+//     0xAA, the same cipher keyed the same way);
+//   - "des" for P25 DES-OFB (ALGID 0x81; "des", "des-ofb", "desofb");
+//   - "tdes" for P25 Triple-DES (ALGID 0x83 two-key / 0x86 three-key;
+//     "tdes", "3des", "triple-des" — the key length picks the variant);
+//   - "aes" for P25 AES (ALGID 0x85 AES-128, 0x84 / 0x89 AES-256; "aes",
+//     "aes-128", "aes-256", "aes128", "aes256" — the key length picks the
+//     variant).
 func (k EncryptionKeyConfig) NormalizedAlgorithm() string {
-	switch a := strings.ToLower(strings.TrimSpace(k.Algorithm)); a {
+	a := strings.ToLower(strings.TrimSpace(k.Algorithm))
+	a = strings.NewReplacer("-", "", "_", "", " ", "").Replace(a)
+	switch a {
 	case "rc4", "arc4", "adp":
 		return "rc4"
+	case "des", "desofb":
+		return "des"
+	case "tdes", "3des", "tripledes", "des3":
+		return "tdes"
+	case "aes", "aes128", "aes256", "aesofb", "aes256ofb", "aes128ofb":
+		return "aes"
 	default:
 		return a
 	}
