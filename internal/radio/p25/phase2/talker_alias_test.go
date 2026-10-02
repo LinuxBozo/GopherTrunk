@@ -200,6 +200,53 @@ func TestMotorolaAliasAssemblerDecodesRealAlias(t *testing.T) {
 	}
 }
 
+// TestMotorolaAliasAssemblerDecodesFromLiveLengthPDUs feeds the same real
+// #376 alias through PDUs shaped the way the LIVE decoder delivers them: a
+// Phase 2 MAC PDU after FEC removal is 144 bits = 18 bytes, so a vendor
+// PDU's payload is 16 bytes — one more than the 15-byte SDRTrunk MSG dumps
+// above. The extra byte is not alias data (the header fragment is 64 bits
+// and each data fragment 100 bits, fixed), so it is filled with a
+// non-zero pattern here to prove it is ignored rather than merely
+// zero-tolerated. Against the old slice-to-end parsers this fails: the
+// trailing byte landed mid-stream, shifted the cipher region, and the name
+// decoded to garbage while the RID still parsed (#773).
+func TestMotorolaAliasAssemblerDecodesFromLiveLengthPDUs(t *testing.T) {
+	pad := func(msg []byte) []byte {
+		return append(append([]byte(nil), msg...), 0xA5)
+	}
+	a := NewMotorolaAliasAssembler(nil)
+	h, ok := macPDU(t, pad(aliasHeaderMSG)...).AsMotorolaAliasHeader()
+	if !ok {
+		t.Fatal("AsMotorolaAliasHeader rejected a 16-byte (live-length) payload")
+	}
+	if len(h.Fragment) != aliasHeaderFragBytes {
+		t.Fatalf("header fragment = %d bytes, want %d", len(h.Fragment), aliasHeaderFragBytes)
+	}
+	a.AddHeader(h)
+	d1, ok := macPDU(t, pad(aliasData1MSG)...).AsMotorolaAliasData()
+	if !ok {
+		t.Fatal("AsMotorolaAliasData rejected a 16-byte (live-length) payload")
+	}
+	if len(d1.Fragment) != aliasDataFragBytes {
+		t.Fatalf("data fragment = %d bytes, want %d", len(d1.Fragment), aliasDataFragBytes)
+	}
+	a.AddData(d1)
+	d2, _ := macPDU(t, pad(aliasData2MSG)...).AsMotorolaAliasData()
+	res := a.AddData(d2)
+	if !res.Complete {
+		t.Fatal("live-length header + both blocks should complete the alias")
+	}
+	if res.SourceID != 200062 || res.Alias != "CRIO 0062" || !res.Reliable || !res.CRCOK {
+		t.Errorf("got rid=%d alias=%q reliable=%v crc_ok=%v, want 200062 %q true true",
+			res.SourceID, res.Alias, res.Reliable, res.CRCOK, "CRIO 0062")
+	}
+	// A payload too short to hold a whole fragment is rejected, never
+	// partially consumed.
+	if _, ok := macPDU(t, aliasData1MSG[:len(aliasData1MSG)-1]...).AsMotorolaAliasData(); ok {
+		t.Error("a data PDU one byte short of a full 100-bit fragment must be rejected")
+	}
+}
+
 // TestMotorolaAliasReassemblesSDRTrunkFragmentStream pins the reassembly
 // to SDRTrunk ground truth (#376/#773). SDRTrunk concatenates the decoded
 // FRAGMENT fields — header BEE00164030D7E24, data1 44F6FF2FA9AC3EC34432FA63C,
