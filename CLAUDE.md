@@ -48,6 +48,20 @@ confirmation before any close-as-completed.
 
 ## DSP / replay notes (so the next investigation starts ahead)
 
+- **The Motorola P25 talker-alias cipher (#773) IS SOLVED and enabled (`motorola.CipherVerified
+  = true`, PR #1123, v1.0.8) — do not tell a reporter it is still gated or still needs a
+  chosen-plaintext capture.** The 29 Sep stale-check bot did exactly that five weeks after the
+  cipher landed, and the reporter gave up and moved to SDRTrunk. Verified: 1242/1242 held-out
+  characters, the real #376 capture → "CRIO 0062" with a valid CRC-16/GSM, and an end-to-end
+  dispatcher test on 144-bit sub-frames (`sigfollow.TestDispatcherPublishesRealMotorolaAliasAsReliable`).
+  That test caught a live-only defect the 15-byte SDRTrunk-dump fixtures could never see: a live
+  MAC PDU is 144 bits = a 16-byte vendor payload, and the fragment parsers sliced to the payload
+  END, so each fragment carried one trailing byte that shifted the cipher region (RID parsed, name
+  garbage, dropped). Fragments are fixed-length (64-bit header / 100-bit data, SDRTrunk's public
+  constants). Lesson: when fixtures come from another decoder's *dump*, also pin the PDU shape the
+  LIVE FEC chain hands out. What is NOT closed: on-air confirmation on the reporter's rig, and
+  Phase 2 MAC yield on weak air (#915: 0/17 RIDs at `mac_rs_valid=0` on their capture; the alias
+  rides the same MAC PDUs). Operator guide: `docs/talker-alias.md`.
 - **FLAC is now a first-class container on every recorder that had a container at all**,
   with ONE shared stereo encode core (`baseband.FLACIQEncoder` — `siglab.IQContainer`
   delegates to it) and a mono voice twin (`voice.FlacWriter`): `capture -format wav|flac`
@@ -746,6 +760,41 @@ confirmation before any close-as-completed.
   shows nothing" report; same silent-mismatch family as the History `r.rows` lesson). Still
   passthrough kinds (docs/api-events.md notes the rename); `summarizeEvent` also descends into a
   nested `grant`/`Grant` object for call.start/end/complete.
+- **Competitive gap series (Oct 2026) — the subsystems it added and the rules they
+  follow** (`docs/competitive-feature-assessment.md` is the catalog + open-gap list):
+  - **P25 OFB-family decryption** (`phase1/voicecrypt.go`): DES-OFB / TDES / AES share
+    ADP's frame mapping with a one-block discard (8 / 16 bytes vs RC4's 256); the AES IV
+    is `MI ‖ LFSR64(MI)` (`p25crypto.ExpandMI`, = OP25 `expand_mi_to_128`), NOT a
+    left-justified MI (the cryptolab had that wrong). Reference-pinned, no GT capture yet —
+    `TestP25ADPReplay` with a DES/AES key is the on-air gate. `encryption_keys.algorithm`
+    normalises to `rc4 | des | tdes | aes`; the key LENGTH picks the variant and the chain
+    refuses a key whose length disagrees with the ES's ALGID rather than guessing.
+  - **`recordings.mute_encrypted`** mutes PCM only (WAV + live tap); `.raw/.imb/.amb` keep
+    ciphertext. "Decryptable" is decided by `RecorderOptions.KeyConfigured` (daemon builds
+    it from `encryption_keys`; key id 0 = any key on the system), never by whether the
+    composer actually decrypted — keep it that way or a failed decrypt would mute speech.
+  - **Alerts** (`internal/alerts`): rules × channels; channels are plain HTTP except `exec`
+    (argv split on whitespace, JSON on stdin + `GT_ALERT_*`) and `mqtt` (a 150-line QoS-0
+    MQTT 3.1.1 publisher — do NOT add a client dependency for it). Delivery runs on a
+    bounded queue; a dead destination must never block the bus. New bus kinds need: an
+    `alerts.Normalize` case, a `defaultMessage` case, `config.AlertRuleEventKinds`, and a
+    CC Activity label if operator-facing.
+  - **Hold / avoid** (`trunking/holdavoid.go`) sit in `HandleGrant` after Lockout and
+    before the scan-list gate; emergency bypasses both; a held TG bypasses list mode;
+    neither persists (a restart clears them like a scanner power cycle — deliberate).
+  - **P25 unit signalling** (`phase1/opcodes_unit.go`): parsers are pinned by LITERAL
+    vectors built from SDRTrunk's bit indexes with an encoder independent of the
+    `Assemble*` inverses (`tsbkBits` in the test) — keep new TSBK parsers to that pattern.
+  - **Transcription** (`internal/transcribe`): one OpenAI-shaped multipart client covers
+    OpenAI / whisper.cpp / faster-whisper / LocalAI; uploads 16 kHz mono WAV by default
+    (whisper.cpp refuses anything else). Transcripts attach to call rows THROUGH
+    `call_recordings` by path (segments append) — the recorder's `CallComplete.AudioPath`
+    is the key, so never rename a recording between CallComplete and the store.
+  - **Adding a config section** touches: `config.Config`, `sectionValidators()`,
+    `configbuilder/fieldmeta.go` (every field needs Help — `TestFieldHelpCoverage`),
+    `configbuilder/sections.go`, `web/configbuilder/src/api/types.ts` (every field —
+    `TestConfigSchemaCoveredByWebBuilder`), a `web/configbuilder/src/sections/*.tsx` +
+    `index.tsx` entry, `config.example.yaml`, and a `docs/*.md` with `nav_group: Reference`.
 - **Every config key must appear in config.example.yaml when it lands** — `diversity_capture_format`
   shipped in code but was missed there, and an operator guessing the key name at their rig is the
   failure mode (4 Sep report). When adding a `Config` field, grep config.example.yaml before

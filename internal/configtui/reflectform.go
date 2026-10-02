@@ -17,6 +17,7 @@ const (
 	kindBoolPtr   // *bool tri-state (default/true/false)
 	kindNumberPtr // *int/*uint tri-state (unset/value), e.g. *uint8 color_code
 	kindStringList
+	kindNumberList // []int / []uint (e.g. talkgroup / radio id lists), comma-separated
 	kindFreqList
 	kindList        // []struct → drill into a list view
 	kindStruct      // nested struct → drill into a sub-form
@@ -122,7 +123,12 @@ func kindOf(f reflect.StructField, m fieldMeta) rowKind {
 		if el.Kind() == reflect.String {
 			return kindStringList
 		}
-		return kindUnsupported // e.g. []int — would corrupt on commit
+		switch el.Kind() {
+		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+			reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			return kindNumberList
+		}
+		return kindUnsupported // e.g. []float — would corrupt on commit
 	case reflect.Ptr:
 		if ft.Elem().Kind() == reflect.Bool {
 			return kindBoolPtr

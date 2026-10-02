@@ -14,9 +14,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/MattCheramie/GopherTrunk/internal/alerts"
 	gtdiag "github.com/MattCheramie/GopherTrunk/internal/diag"
 	"github.com/MattCheramie/GopherTrunk/internal/events"
 	"github.com/MattCheramie/GopherTrunk/internal/sdr"
+	"github.com/MattCheramie/GopherTrunk/internal/transcribe"
 	"github.com/MattCheramie/GopherTrunk/internal/trunking"
 )
 
@@ -32,6 +34,38 @@ type EngineSnapshot interface {
 	// IsKnownRadio reports whether id has been observed as a subscriber radio,
 	// used to filter a phantom auto-discovered talkgroup out of the list.
 	IsKnownRadio(id uint32) bool
+}
+
+// TranscriptionProvider is the transcription backend's read side
+// (internal/transcribe.Manager). Optional.
+type TranscriptionProvider interface {
+	Status() transcribe.Status
+}
+
+// ScanControl is the engine's talkgroup hold / timed-avoid surface
+// (trunking.Engine). Optional; when nil the hold / avoid routes return 503.
+type ScanControl interface {
+	Hold(system string, tg uint32) trunking.HoldState
+	ReleaseHold() bool
+	Held() (trunking.HoldState, bool)
+	AvoidTalkgroup(system string, tg uint32, d time.Duration) trunking.Avoid
+	UnavoidTalkgroup(system string, tg uint32) bool
+	Avoids() []trunking.Avoid
+}
+
+// AlertsProvider is the alerts subsystem's read side plus the channel
+// test hook (internal/alerts.Manager). Optional; when nil GET
+// /api/v1/alerts reports the subsystem as not configured.
+type AlertsProvider interface {
+	Status() alerts.Status
+	Test(ctx context.Context, channel string) error
+}
+
+// PatchProvider exposes the engine's active patch / supergroup table
+// (Engine.Patches). Optional; when nil GET /api/v1/patches returns an empty
+// list.
+type PatchProvider interface {
+	Patches() []trunking.PatchGroup
 }
 
 // EngineMutator is the optional write side of the engine. Daemons
@@ -217,6 +251,10 @@ type ScannerStatus struct {
 	Conventional        ConvScannerStatusDTO  `json:"conventional"`
 	TalkgroupScanCount  int                   `json:"tg_scan_count"`
 	TalkgroupTotalCount int                   `json:"tg_total"`
+	// Hold is the active talkgroup hold (nil = scanning normally); Avoids
+	// the live temporary lockouts. Both from the engine (ScanControl).
+	Hold   *trunking.HoldState `json:"hold,omitempty"`
+	Avoids []trunking.Avoid    `json:"avoids"`
 }
 
 // SystemHuntStatusDTO mirrors cchunt.SystemStatus for the wire layer
@@ -276,35 +314,39 @@ type Server struct {
 	// address after net.Listen — important for ":0" / "127.0.0.1:0"
 	// configurations where the kernel picks the port. Read via
 	// BoundAddr(). Empty until Run() has bound (or after Close).
-	boundAddr    string
-	bus          *events.Bus
-	engine       EngineSnapshot
-	mutator      EngineMutator
-	retention    RetentionSweeper
-	tones        ToneDetectorReset
-	devices      DevicesProvider
-	scanner      ScannerCockpit
-	hunt         HuntCockpit
-	audio        AudioController
-	broadcast    BroadcastStatusProvider
-	runtime      RuntimeProvider
-	configWriter ConfigWriter
-	configActiv  ConfigActivator
-	settings     SettingsApplier
-	importer     Importer
-	imports      *importStaging
-	webAssets    fs.FS
-	talkgroups   *trunking.TalkgroupDB
-	rids         *trunking.RIDDB
-	systems      []trunking.System
-	history      HistoryQuery
-	locations    LocationQuery
-	affiliations AffiliationProvider
-	sites        SitesProvider
-	grants       GrantsProvider
-	metrics      http.Handler
-	log          *slog.Logger
-	version      string
+	boundAddr     string
+	bus           *events.Bus
+	engine        EngineSnapshot
+	mutator       EngineMutator
+	retention     RetentionSweeper
+	tones         ToneDetectorReset
+	devices       DevicesProvider
+	scanner       ScannerCockpit
+	hunt          HuntCockpit
+	audio         AudioController
+	broadcast     BroadcastStatusProvider
+	runtime       RuntimeProvider
+	configWriter  ConfigWriter
+	configActiv   ConfigActivator
+	settings      SettingsApplier
+	importer      Importer
+	imports       *importStaging
+	webAssets     fs.FS
+	talkgroups    *trunking.TalkgroupDB
+	rids          *trunking.RIDDB
+	systems       []trunking.System
+	history       HistoryQuery
+	locations     LocationQuery
+	affiliations  AffiliationProvider
+	patches       PatchProvider
+	alerts        AlertsProvider
+	scanControl   ScanControl
+	transcription TranscriptionProvider
+	sites         SitesProvider
+	grants        GrantsProvider
+	metrics       http.Handler
+	log           *slog.Logger
+	version       string
 
 	auth *authState
 	// allowMutations is kept for backwards compatibility with
@@ -666,6 +708,13 @@ type HistoryFilter struct {
 	Until     time.Time
 	Limit     int
 	OnlyEnded bool
+	// Query is a free-text search (alias / system / protocol substring, or
+	// an exact talkgroup / RID when numeric); Protocol narrows to one
+	// protocol; Encrypted / Emergency filter on the flag when non-nil.
+	Query     string
+	Protocol  string
+	Encrypted *bool
+	Emergency *bool
 }
 
 // CallRow mirrors storage.CallRow as a JSON-friendly row. Lives in the
@@ -689,7 +738,9 @@ type CallRow struct {
 	// call as individual instead of mistaking the radio ID for a talkgroup.
 	Individual bool `json:"individual,omitempty"`
 	// Timeslot is the 1-based DMR TDMA slot (0 = n/a, 1 = TS1, 2 = TS2).
-	Timeslot       uint8     `json:"timeslot,omitempty"`
+	Timeslot uint8 `json:"timeslot,omitempty"`
+	// Priority is the call's on-air signalled priority (0 = none).
+	Priority       uint8     `json:"priority,omitempty"`
 	DeviceSerial   string    `json:"device_serial"`
 	StartedAt      time.Time `json:"started_at"`
 	EndedAt        time.Time `json:"ended_at,omitempty"`
@@ -712,6 +763,9 @@ type CallRow struct {
 	// HasRecording is true when a finished WAV exists for this call. The path
 	// is not exposed; the UI plays via GET /api/v1/calls/{id}/audio.
 	HasRecording bool `json:"has_recording,omitempty"`
+	// Transcript is the speech-to-text of the recording when the
+	// transcription backend produced one.
+	Transcript string `json:"transcript,omitempty"`
 }
 
 // ServerOptions configure a new Server.
@@ -733,6 +787,15 @@ type ServerOptions struct {
 	// Locations is optional. When non-nil the server exposes
 	// GET /api/v1/locations for the web map.
 	Locations LocationQuery
+	// Alerts is optional: the alert-rule manager's status + channel test.
+	Alerts AlertsProvider
+	// ScanControl is optional: talkgroup hold / timed avoid (the engine).
+	ScanControl ScanControl
+	// Transcription is optional: the speech-to-text backend's counters.
+	Transcription TranscriptionProvider
+	// Patches is optional. When non-nil GET /api/v1/patches serves the
+	// live patch/supergroup table (P25 Motorola/Harris regroups).
+	Patches PatchProvider
 	// Affiliations is optional. When non-nil the server exposes
 	// GET /api/v1/affiliations (the unit-activity table).
 	Affiliations AffiliationProvider
@@ -1073,6 +1136,10 @@ func NewServer(opts ServerOptions) (*Server, error) {
 		history:        opts.History,
 		locations:      opts.Locations,
 		affiliations:   opts.Affiliations,
+		patches:        opts.Patches,
+		alerts:         opts.Alerts,
+		scanControl:    opts.ScanControl,
+		transcription:  opts.Transcription,
 		sites:          opts.Sites,
 		grants:         opts.Grants,
 		metrics:        opts.MetricsHandler,
@@ -1266,6 +1333,10 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("GET /api/v1/calls/{id}/audio", s.handleCallAudio)
 	mux.HandleFunc("GET /api/v1/locations", s.handleLocations)
 	mux.HandleFunc("GET /api/v1/affiliations", s.handleAffiliations)
+	mux.HandleFunc("GET /api/v1/patches", s.handlePatches)
+	mux.HandleFunc("GET /api/v1/alerts", s.handleAlertsStatus)
+	mux.HandleFunc("GET /api/v1/transcription", s.handleTranscriptionStatus)
+	mux.HandleFunc("POST /api/v1/alerts/test/{channel}", s.gate(s.handleAlertsTest))
 	mux.HandleFunc("GET /api/v1/grants", s.handleGrants)
 	mux.HandleFunc("GET /api/v1/sites", s.handleListSites)
 	mux.HandleFunc("GET /api/v1/rids", s.handleListRIDs)
@@ -1338,6 +1409,10 @@ func (s *Server) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/v1/scanner/conventional/{index}/lockout", s.gate(s.handleConvLockout))
 	mux.HandleFunc("POST /api/v1/scanner/conventional/{index}/unlockout", s.gate(s.handleConvUnlockout))
 	mux.HandleFunc("POST /api/v1/scanner/manual_tune", s.gate(s.handleScannerManualTune))
+	mux.HandleFunc("POST /api/v1/scanner/hold", s.gate(s.handleScannerHold))
+	mux.HandleFunc("DELETE /api/v1/scanner/hold", s.gate(s.handleScannerReleaseHold))
+	mux.HandleFunc("POST /api/v1/talkgroups/{id}/avoid", s.gate(s.handleTalkgroupAvoid))
+	mux.HandleFunc("DELETE /api/v1/talkgroups/{id}/avoid", s.gate(s.handleTalkgroupUnavoid))
 	mux.HandleFunc("DELETE /api/v1/scanner/manual_tune/{index}", s.gate(s.handleScannerClearManualTune))
 
 	// Audio cockpit — read endpoint is always open; the PATCH is

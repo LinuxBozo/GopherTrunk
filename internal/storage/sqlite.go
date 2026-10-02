@@ -503,6 +503,9 @@ func (d *DB) ensureCallLogColumns() error {
 		// recorder's KindCallComplete event. NULL until (and unless) the call
 		// was recorded, so a non-recording daemon leaves it unset.
 		{"recording_path", `ALTER TABLE call_log ADD COLUMN recording_path TEXT`},
+		// Speech-to-text of the call's recording(s), from the transcription
+		// backend; NULL until (and unless) transcribed. Segments append.
+		{"transcript", `ALTER TABLE call_log ADD COLUMN transcript TEXT`},
 	}
 	for _, a := range adds {
 		if have[a.name] {

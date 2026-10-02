@@ -87,3 +87,52 @@ func TestDefaultKeysSized(t *testing.T) {
 		}
 	}
 }
+
+// TestExpandMIMatchesOP25 transcribes OP25's expand_mi_to_128 (overflow bits
+// shifted out over 64 clocks form IV[0:8], the register left behind forms
+// IV[8:16]) independently of ExpandMI and checks the two agree on literal
+// MIs, including that IV[0:8] is the MI itself.
+func TestExpandMIMatchesOP25(t *testing.T) {
+	ref := func(mi []byte) []byte {
+		var lfsr uint64
+		for i := 0; i < 8; i++ {
+			lfsr = lfsr<<8 + uint64(mi[i])
+		}
+		var overflow uint64
+		for i := 0; i < 64; i++ {
+			ov := (lfsr >> 63) & 1
+			fb := ((lfsr >> 63) ^ (lfsr >> 61) ^ (lfsr >> 45) ^ (lfsr >> 37) ^ (lfsr >> 26) ^ (lfsr >> 14)) & 1
+			lfsr = lfsr<<1 | fb
+			overflow = overflow<<1 | ov
+		}
+		iv := make([]byte, 16)
+		for i := 7; i >= 0; i-- {
+			iv[i] = byte(overflow)
+			overflow >>= 8
+		}
+		for i := 15; i >= 8; i-- {
+			iv[i] = byte(lfsr)
+			lfsr >>= 8
+		}
+		return iv
+	}
+	for _, mi := range [][]byte{
+		{0x17, 0xCE, 0xEC, 0x55, 0x31, 0x0A, 0x74, 0x75},
+		{0, 0, 0, 0, 0, 0, 0, 1},
+		{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
+		{0xC5, 0x25, 0xBC, 0xC7, 0xF7, 0x2B, 0x67, 0xE9},
+	} {
+		got := ExpandMI(mi)
+		want := ref(mi)
+		if string(got) != string(want) {
+			t.Errorf("ExpandMI(%x) = %x, want %x", mi, got, want)
+		}
+		if string(got[:8]) != string(mi) {
+			t.Errorf("ExpandMI(%x)[0:8] = %x, want the MI itself", mi, got[:8])
+		}
+	}
+	// A zero MI is the LFSR's fixed point: the IV is all zero.
+	if z := ExpandMI(make([]byte, 8)); string(z) != string(make([]byte, 16)) {
+		t.Errorf("ExpandMI(0) = %x", z)
+	}
+}

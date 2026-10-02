@@ -22,8 +22,10 @@ A **talker alias** is a short human-readable name a radio transmits for itself �
 [radio ID](/reference/radio-id/).[^wiki] On Motorola P25 systems the alias is a proprietary
 feature: the radio periodically broadcasts its display name, framed together with its full
 source identity and a checksum, spread across several small fragments that a receiver
-reassembles. GopherTrunk decodes the framing and identity; the alias text itself is protected
-by a [proprietary cipher](/reference/motorola-talker-alias-cipher/) that remains unverified.
+reassembles. GopherTrunk decodes the framing, the identity, and the alias text itself: the
+[proprietary cipher](/reference/motorola-talker-alias-cipher/) that obfuscates the name was
+recovered clean-room and is verified against real over-the-air traffic, so the decoded name
+surfaces on the radio's entry. See the operator guide, [Talker aliases](/talker-alias.html).
 
 <figure class="figure" markdown="0">
 <svg viewBox="0 0 470 140" role="img" aria-label="Several alias fragments concatenating into one message consisting of a source SUID of WACN, System ID, and Radio ID, followed by the obfuscated alias bytes and a trailing sixteen-bit CRC." xmlns="http://www.w3.org/2000/svg">
@@ -75,16 +77,18 @@ shared package so each carrier owns only its fragment transport and shares the d
 
 ## Verification and trust
 
-The **SUID framing is verified**: the reassembly fix (issue #778) reproduces SDRTrunk's
-fragment byte stream exactly, which is why the WACN, System, and Radio ID fall out correctly
-on real traffic. The **alias text is not** — the obfuscation cipher is unverified and gated
-off (`CipherVerified = false`, issue #773), so GopherTrunk never surfaces the decoded name as
-a confirmed alias. Even the CRC is advisory: its parameters are inferred from open decoders
-and not yet confirmed against a committed real-frame fixture, so GopherTrunk logs the CRC
-result rather than gating on it — a wrong polynomial must not suppress a valid alias. The net
-effect is that GopherTrunk reliably tells you *which radio* is announcing an alias, while being
-scrupulous about not fabricating *what* the alias says.
+Both halves are verified. The **SUID framing** reproduces SDRTrunk's fragment byte stream exactly
+(the nibble-aligned reassembly fix, issue #778), which is why the WACN, System, and Radio ID fall
+out correctly on real traffic. The **alias text** decodes too: the obfuscation cipher was recovered
+by clean-room reverse engineering and is enabled (`CipherVerified = true`, issue #773) — it
+reproduces a held-out reference set byte-for-byte (1242 of 1242 characters) and decodes the real
+over-the-air capture from issue #376 (RID 200062) to its radio's actual display name, "CRIO 0062",
+with a matching CRC-16/GSM. The CRC is also what delimits the cipher region: a FACCH block's
+zero-pad is carried along by reassembly, and the self-delimiting CRC strips it before the
+length-seeded cipher runs. The CRC stays advisory for *suppression* (a carrier whose CRC differs
+must not hide a valid alias), while a decode that is not clean printable text is still published
+flagged *unreliable* so a bit-corrupted fragment sequence never reads as a confirmed name.
 
 ## Sources
 
-[^wiki]: [Project 25](https://en.wikipedia.org/wiki/Project_25) — Wikipedia, on the P25 standard. The talker alias is a proprietary Motorola feature; its framing is verified against SDRTrunk while the alias cipher remains unverified (issues #778, #773).
+[^wiki]: [Project 25](https://en.wikipedia.org/wiki/Project_25) — Wikipedia, on the P25 standard. The talker alias is a proprietary Motorola feature; its framing is verified against SDRTrunk's fragment stream and its cipher is clean-room recovered and verified against real over-the-air traffic (issues #778, #773).

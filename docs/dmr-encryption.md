@@ -305,9 +305,62 @@ GT_P25_ADP_IQ=adp-call.cs16 GT_P25_ADP_RATE=2400000 GT_P25_ADP_KEY=1234567890 GT
 ES, the descrambled frame count and a `VERDICT` based on IMBE pitch
 continuity — never on loudness (random vocoder parameters are loud).
 
-Not decrypted on P25: DES-OFB, TDES, AES-128/256 — identified and
-published, and the cryptolab realises their keystreams, but no capture has
-validated the IV expansion onto the voice frames.
+## P25 DES-OFB, TDES and AES (ALGIDs 0x81 / 0x83 / 0x86 / 0x85 / 0x84 / 0x89)
+
+The same Phase 1 voice path descrambles the OFB-family algorithms when a
+key is configured. The construction is the one OP25 runs on air
+(`op25_crypt_des.cc` / `op25_crypt_aes.cc`), so the frame mapping is ADP's
+with a different leading discard — one cipher block instead of RC4's 256
+warm-up bytes:
+
+| Algorithm | Key | IV | Discard | LDU1 u0 | LDU2 u0 |
+|---|---|---|---|---|---|
+| ADP (0xAA) | 40-bit | RC4 keyed key‖MI[0:8] | 256 | 267 | 368 |
+| DES-OFB (0x81), TDES (0x83 two-key, 0x86 three-key) | 64 / 128 / 192-bit | MI[0:8] | 8 | 19 | 120 |
+| AES-128 (0x85), AES-256 (0x84, 0x89) | 128 / 256-bit | MI expanded to 128 bits by the TIA LFSR: MI ‖ LFSR64(MI) | 16 | 27 | 128 |
+
+Within an LDU the nine 11-byte IMBE frames are contiguous with a 2-byte
+Low Speed Data gap before u8; the MI schedule (an LDU2's ES announces the
+NEXT superframe, successive MIs follow the 64-bit LFSR) is identical for
+every algorithm. Configure the key with `algorithm: des`, `tdes` or `aes`
+— the key LENGTH selects the variant (16 vs 24 bytes for TDES, 16 vs 32
+for AES) and the chain refuses a key whose length disagrees with the ALGID
+on air rather than guessing.
+
+```yaml
+encryption_keys:
+  - key_id: 2
+    algorithm: aes
+    key: "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+  - key_id: 3
+    algorithm: des-ofb
+    key: "0123456789abcdef"
+```
+
+**Verification status (#764/#771):** reference-pinned, not capture-pinned.
+The layout and the AES IV expansion are pinned against OP25's literal
+offsets and a transcription of its `expand_mi_to_128`, and the synthetic
+chain test proves the daemon applies them end-to-end, but GopherTrunk has
+no DES/TDES/AES call of its own. `TestP25ADPReplay` accepts a DES/AES
+capture with the matching key (`GT_P25_ADP_KEY` — the ES's ALGID selects
+the algorithm); pitch continuity off the chance floor is the confirmation.
+Not decrypted on P25: DES-XL (0x9F, a different construction) and Phase 2
+TDMA (the composer's Phase 2 chain only publishes the Encryption Sync).
+
+## Calls you cannot decrypt: `recordings.mute_encrypted`
+
+Without a key the vocoder renders the ciphertext as random-parameter
+"speech" — loud, unintelligible, and easy to mistake for a decode fault.
+`recordings.mute_encrypted: true` records and streams **silence** for an
+encrypted call no configured key covers (the behaviour of every hardware
+scanner, SDRTrunk, trunk-recorder and DSD-FME), while the `.raw` / `.imb` /
+`.amb` sidecars keep the ciphertext frames and the call is logged, shown and
+uploaded exactly as before. A call whose key id matches an `encryption_keys`
+entry is decrypted in-process and never muted; encryption discovered
+mid-call (a P25 LDU2 Encryption Sync) mutes from that frame on. The
+call-ended log line carries `muted_frames` so a silent recording of an
+encrypted call reads as intended. `skip_encrypted` remains the stronger
+option (no file at all).
 
 ## Decoding the `.raw` sidecar out-of-band
 
@@ -323,9 +376,10 @@ configured key it holds the *encrypted* frames.
 - **Hytera Enhanced Privacy** (FID 0x68, a 40-bit MI and a vendor key
   schedule) and **Kirisun** privacy are recognised in the PI header and
   logged, but not decrypted.
-- **DES / AES** DMRA algorithms: the cryptolab keystream generator
-  realises the cores, but the voice path does not apply them (no
-  capture to validate the IV expansion against).
+- **DES / AES** DMRA algorithms on DMR: the cryptolab keystream generator
+  realises the cores, but the DMR voice path does not apply them (no
+  capture to validate the IV expansion against). On P25 they are applied
+  (section above).
 - **Motorola Basic Privacy** (a 16-bit scrambler, not a cipher).
 
 ## References

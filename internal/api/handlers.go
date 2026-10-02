@@ -3,6 +3,8 @@ package api
 import (
 	"bytes"
 	"context"
+	"encoding/csv"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -373,6 +375,29 @@ func (s *Server) handleCallHistory(w http.ResponseWriter, r *http.Request) {
 	if q.Get("only_ended") == "true" {
 		f.OnlyEnded = true
 	}
+	// Free-text search (alias / system / protocol substring, or an exact
+	// talkgroup / RID when numeric) and flag filters — the search every
+	// call-playback front end offers and the History panel lacked.
+	f.Query = strings.TrimSpace(q.Get("q"))
+	f.Protocol = strings.TrimSpace(q.Get("protocol"))
+	for _, fl := range []struct {
+		key string
+		dst **bool
+	}{{"encrypted", &f.Encrypted}, {"emergency", &f.Emergency}} {
+		if v := q.Get(fl.key); v != "" {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				s.writeError(w, http.StatusBadRequest, "invalid "+fl.key+" (want true/false)")
+				return
+			}
+			*fl.dst = &b
+		}
+	}
+	format := strings.ToLower(q.Get("format"))
+	if format == "csv" && f.Limit == 100 && q.Get("limit") == "" {
+		// An export wants the whole filtered range, not the UI page size.
+		f.Limit = 1000
+	}
 	rows, err := s.history.History(r.Context(), f)
 	if err != nil {
 		s.log.Warn("api: history query failed", "err", err)
@@ -382,7 +407,66 @@ func (s *Server) handleCallHistory(w http.ResponseWriter, r *http.Request) {
 	if rows == nil {
 		rows = []CallRow{}
 	}
+	if format == "csv" {
+		writeCallHistoryCSV(w, rows)
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"calls": rows})
+}
+
+// writeCallHistoryCSV renders call rows as a CSV download (?format=csv on
+// the history endpoint): one row per call with the identity, flags, timing,
+// quality and recording columns, timestamps in RFC3339 UTC. The column
+// order is stable so spreadsheets and scripts can rely on it.
+func writeCallHistoryCSV(w http.ResponseWriter, rows []CallRow) {
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="gophertrunk-calls.csv"`)
+	w.WriteHeader(http.StatusOK)
+	cw := csv.NewWriter(w)
+	_ = cw.Write([]string{
+		"id", "started_at", "ended_at", "duration_ms", "system", "protocol",
+		"group_id", "talkgroup_alpha", "source_id", "source_alpha", "frequency_hz",
+		"timeslot", "individual", "encrypted", "algorithm_id", "key_id", "emergency",
+		"data_call", "priority", "end_reason", "device_serial", "signal_dbfs",
+		"evm_pct", "snr_db", "has_recording", "transcript",
+	})
+	f := func(v *float64) string {
+		if v == nil {
+			return ""
+		}
+		return strconv.FormatFloat(*v, 'f', 2, 64)
+	}
+	b := func(v bool) string {
+		if v {
+			return "1"
+		}
+		return "0"
+	}
+	for _, r := range rows {
+		ended := ""
+		if !r.EndedAt.IsZero() {
+			ended = r.EndedAt.UTC().Format(time.RFC3339)
+		}
+		alg := ""
+		if r.Encrypted || r.AlgorithmID != 0 {
+			alg = fmt.Sprintf("0x%02X", r.AlgorithmID)
+		}
+		_ = cw.Write([]string{
+			strconv.FormatInt(r.ID, 10),
+			r.StartedAt.UTC().Format(time.RFC3339),
+			ended,
+			strconv.FormatInt(r.DurationMs, 10),
+			r.System, r.Protocol,
+			strconv.FormatUint(uint64(r.GroupID), 10), r.TalkgroupAlpha,
+			strconv.FormatUint(uint64(r.SourceID), 10), r.SourceAlpha,
+			strconv.FormatUint(uint64(r.FrequencyHz), 10),
+			strconv.Itoa(int(r.Timeslot)), b(r.Individual), b(r.Encrypted), alg,
+			strconv.Itoa(int(r.KeyID)), b(r.Emergency), b(r.DataCall),
+			strconv.Itoa(int(r.Priority)), r.EndReason, r.DeviceSerial,
+			f(r.SignalDbFS), f(r.EVMPct), f(r.SNRDb), b(r.HasRecording), r.Transcript,
+		})
+	}
+	cw.Flush()
 }
 
 // handleCallAudio streams the finished recording for one call so the web UI

@@ -22,7 +22,60 @@ for tagged releases.
   end-to-end test that carries the #1187 reporter's real on-air ciphertext
   through `replay`: all 54 frames record as the clear speech with the key, and
   as the untouched ciphertext without it.
-
+- **Competitive feature assessment + the gap series it drove.** `docs/competitive-feature-assessment.md`
+  catalogs SDRTrunk, Trunk Recorder, OP25, DSD-FME / dsd-neo, DSDPlus, Unitrunker,
+  Uniden / Whistler scanner firmware, the call-sharing ecosystem and general SDR apps
+  across scanning, trunking, audio, recording and encryption, maps GopherTrunk's gaps
+  and lists what is still open with its blocker. The items below closed the tractable gaps.
+- **P25 DES-OFB, Triple-DES and AES-128/256 voice decryption with operator keys.**
+  `encryption_keys` accepts `algorithm: des | tdes | aes` (the key length selects the
+  variant); the Phase 1 voice chain descrambles with OP25's on-air layout (one cipher
+  block discarded, then ADP's frame mapping) and the TIA LFSR MI→IV expansion. Reference-
+  pinned, not capture-pinned — a DES/AES capture through `TestP25ADPReplay` is the gate.
+- **`recordings.mute_encrypted`** records and streams silence for an encrypted call no
+  configured key decrypts (what every hardware scanner, SDRTrunk, trunk-recorder and
+  DSD-FME do) instead of the vocoder's rendering of ciphertext; sidecars keep the
+  ciphertext, the call is logged / uploaded as before, `muted_frames` is logged.
+- **Alerts (`alerts:`).** Rules watch bus events (call.start / end / complete, grant,
+  tone.alert, cc.locked / lost, affiliation, registration, patch, call.encryption,
+  talker.alias, location, the new unit-signalling kinds, call.transcript) filtered by
+  system / talkgroup / radio / emergency / encrypted / tone profile / duration / keywords
+  with a cooldown and an optional Go-template message, and deliver to **Discord, Slack,
+  ntfy, Pushover, Telegram, Gotify, a generic webhook, a local command or an MQTT broker**
+  (dependency-free MQTT 3.1.1 publisher; `mirror_events: true` publishes every bus event
+  to `<prefix>/events/<kind>`). Recordings attach on Discord / Telegram / webhook.
+  `GET /api/v1/alerts`, `POST /api/v1/alerts/test/{channel}`. See docs/alerts.md.
+- **Talkgroup hold and timed avoid.** `POST/DELETE /api/v1/scanner/hold` pins following to
+  one talkgroup; `POST/DELETE /api/v1/talkgroups/{id}/avoid` locks one out for a duration
+  (default 30 min). Emergency grants still pass; a held talkgroup bypasses list mode.
+  Shown / controlled on the Scanner and Talkgroups panels.
+- **P25 unit signalling decoded into events:** `unit.status`, `unit.message`, `call.alert`,
+  `unit.ack`, `unit.queued`, `unit.deny` (with the TIA reason tables), `unit.function`
+  (radio check / inhibit / uninhibit / detach + acks, regroup) and `unit.monitor`, from
+  TSBKs 0x18 / 0x1C / 0x1F / 0x20 / 0x21 / 0x27 / 0x24 / 0x1D, layouts pinned against
+  SDRTrunk's field positions. CC Activity rows, Dashboard summaries, alertable.
+- **Transcription (`transcription:`).** Finished recordings are converted to 16 kHz WAV and
+  posted to any OpenAI-compatible Whisper endpoint (OpenAI, whisper.cpp server,
+  faster-whisper / Speaches, LocalAI); the text is stored on the call, shown in History,
+  matched by the search, exported in the CSV, published as `call.transcript` and usable
+  as alert `keywords`. `GET /api/v1/transcription`. See docs/transcription.md.
+- **Call history search and export.** `GET /api/v1/calls/history` gains `q` (alias /
+  system / protocol / transcript substring, exact TG / RID when numeric), `protocol`,
+  `encrypted=` / `emergency=` and `format=csv`; the History panel gains a search box,
+  from / to range, flag select and a CSV export; rows carry `priority`.
+- **Playback speed** (0.75–2×, remembered) on the recording player.
+- **`GET /api/v1/patches`** serves the live patch / supergroup table (with system + protocol).
+- **Motorola P25 talker aliases decode to the radio's real display name
+  (#773).** The proprietary per-byte alias cipher was recovered by clean-room
+  reverse engineering and enabled (`CipherVerified = true`) in v1.0.8 (#1123)
+  but never announced here: it reproduces a held-out reference set
+  byte-for-byte (1242/1242 characters) and decodes the real #376 capture
+  (RID 200062) to "CRIO 0062" with a valid CRC-16/GSM. Nothing to configure —
+  the name appears in the **Radio IDs** panel's *Talker alias* column, on
+  `GET /api/v1/rids`, and as the `talker.alias` event, on every path that
+  follows a Phase 2 call (voice receivers, wideband `voice_taps`, and the
+  `signalling_taps` harvester) and on the Phase 1 LC / vendor-TSBK carriers.
+  New operator guide: docs/talker-alias.md.
 - **ACARS decoding on conventional-scanner AM channels (#1231).** A
   `scanner.conventional` entry with `mode: am` and `decoders: [acars]`
   decodes the VHF air-band aircraft data link (131.550 / 131.525 /
@@ -50,6 +103,25 @@ for tagged releases.
   signal fields with no lock while the voice chain updated them on every
   frame. It now returns copies. Found by the race detector on the #1187
   replay test.
+- **Retention now sweeps the per-call sidecars** (`.json`, `.imb`, `.amb`, `.mp3`) with the
+  audio they describe; they used to outlive it and pile up.
+- **The per-call JSON sidecar carries `algorithm_id` / `key_id`** on encrypted calls.
+- **The cryptolab AES keystream used a left-justified MI as the IV**; it is now the TIA
+  LFSR expansion (MI ‖ LFSR64(MI)) OP25 and DSD-FME use on air.
+- **Motorola talker-alias fragments are now read at their fixed on-air
+  lengths, so the alias decodes on the LIVE path, not just in fixtures
+  (#773).** A Phase 2 MAC PDU after FEC removal is 144 bits (18 bytes), one
+  byte longer than the SDRTrunk MSG dumps the unit tests were built from, and
+  the alias parsers took the fragment as "everything to the end of the
+  payload". Live, that appended a trailing byte to the header fragment and to
+  every data fragment; each landed mid-stream and shifted the cipher region,
+  so the radio ID still parsed (it leads the header fragment) while the name
+  decoded to garbage and was dropped — the reporter's exact "RID resolves,
+  Talker Alias: —" symptom. Fragments are now sliced to the header's 64 bits
+  and each data block's 100 bits (the structural constants SDRTrunk's
+  assembler uses). Pinned failing-first by
+  `TestMotorolaAliasAssemblerDecodesFromLiveLengthPDUs` and an end-to-end
+  dispatcher test that carries the real #376 PDUs on 144-bit sub-frames.
 - **RadioReference sites CSVs (`trs_sites_<id>.csv`) now import (#849).**
   The importer used to reject them, first with an opaque "data at line 1
   before any # Section marker" error and later with a "can't import

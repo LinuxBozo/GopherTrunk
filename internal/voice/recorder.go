@@ -111,6 +111,8 @@ type Recorder struct {
 	writeRaw           bool
 	writeMBE           bool
 	skipEncrypted      bool
+	muteEncrypted      bool
+	keyConfigured      func(system string, algID uint8, keyID uint16) bool
 	writeCallJSON      bool
 	normalize          NormalizeConfig
 	vocoderForProtocol map[string]string
@@ -335,6 +337,21 @@ type RecorderOptions struct {
 	// never see the partial.
 	SkipEncrypted bool
 
+	// MuteEncrypted, when true, writes SILENCE to the recording and the live
+	// decoded-PCM fan-out for a call flagged encrypted that no configured key
+	// decrypts — what every hardware scanner, SDRTrunk, trunk-recorder and
+	// DSD-FME do — instead of running the ciphertext through the vocoder as
+	// random-parameter "voice". The .raw / .imb / .amb sidecars still carry
+	// the ciphertext frames (they are the material a later key decrypts), the
+	// call's duration / metadata / CallComplete are unchanged, and a call
+	// whose encryption is only discovered mid-stream mutes from that frame
+	// on. KeyConfigured decides "decrypts": nil means no keys anywhere.
+	MuteEncrypted bool
+	// KeyConfigured reports whether the operator holds a key for (system,
+	// algorithm, key id) — the daemon builds it from encryption_keys. Only
+	// consulted when MuteEncrypted is set.
+	KeyConfigured func(system string, algID uint8, keyID uint16) bool
+
 	// Normalize configures optional per-call EBU R128 / BS.1770 loudness
 	// normalization. When Enabled, a finished WAV is measured and rewritten
 	// in place to TargetLUFS (true-peak limited) before CallComplete is
@@ -503,6 +520,8 @@ func NewRecorder(opts RecorderOptions) (*Recorder, error) {
 		writeRaw:           opts.WriteRaw,
 		writeMBE:           opts.WriteMBE,
 		skipEncrypted:      opts.SkipEncrypted,
+		muteEncrypted:      opts.MuteEncrypted,
+		keyConfigured:      opts.KeyConfigured,
 		writeCallJSON:      opts.WriteCallJSON,
 		normalize:          opts.Normalize,
 		enhance:            opts.Enhance,
@@ -887,6 +906,15 @@ func (r *Recorder) writeRawFrame(deviceSerial string, callID uint64, frame []byt
 		}
 		return nil
 	}
+	if r.muteEncrypted && s.cs.Grant.Encrypted && !r.decryptable(s.cs.Grant) {
+		// Undecryptable ciphertext: the vocoder output is random-parameter
+		// noise, so substitute silence of the same length (keeps the
+		// recording's timeline and the live stream's cadence intact).
+		for i := range samples {
+			samples[i] = 0
+		}
+		s.mutedFrames++
+	}
 	if n := len(samples); n > 0 {
 		s.lastSample = samples[n-1]
 	}
@@ -1035,6 +1063,18 @@ const algorithmClear uint8 = 0x80
 // for an encrypted call; a zero source is ignored so a later clear-source update
 // can't erase a known RID. No-op when no session is open for the device. Caller
 // must not hold r.mu.
+// decryptable reports whether an operator key covers g's encryption: the
+// composer decrypts in-process when one does, so the vocoder output is real
+// speech and must not be muted. A grant whose key id is still unknown (0)
+// counts as decryptable when the system has ANY key, since the key id only
+// arrives with the first Encryption Sync / PI header.
+func (r *Recorder) decryptable(g trunking.Grant) bool {
+	if r.keyConfigured == nil {
+		return false
+	}
+	return r.keyConfigured(g.System, g.AlgorithmID, g.KeyID)
+}
+
 func (r *Recorder) backfillSessionGrant(deviceSerial string, encrypted bool, algID uint8, keyID uint16, sourceID uint32) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -1765,12 +1805,22 @@ func (r *Recorder) finalizeCall(ce trunking.CallEnd) {
 	// The call is over — drop its talker history now that finalizeLocked has read
 	// it for the closing sidecar (still under r.mu, before the unlock below).
 	delete(r.callTalkers, ce.DeviceSerial)
+	muted := s.mutedFrames
 	r.mu.Unlock()
-	r.log.Info("recorder: call ended",
-		"device", ce.DeviceSerial,
-		"wav", wavPath,
-		"duration", ce.Duration().Round(time.Millisecond),
-		"reason", ce.Reason)
+	if muted > 0 {
+		r.log.Info("recorder: call ended",
+			"device", ce.DeviceSerial,
+			"wav", wavPath,
+			"duration", ce.Duration().Round(time.Millisecond),
+			"reason", ce.Reason,
+			"muted_frames", muted, "encrypted_no_key", true)
+	} else {
+		r.log.Info("recorder: call ended",
+			"device", ce.DeviceSerial,
+			"wav", wavPath,
+			"duration", ce.Duration().Round(time.Millisecond),
+			"reason", ce.Reason)
+	}
 	if cc != nil {
 		r.normalizeIfEnabled(cc.AudioPath)
 		r.writeCallMetaFor(cc.AudioPath, meta)
@@ -2014,7 +2064,12 @@ type recordingSession struct {
 	// summarises to one line per power-of-two milestone instead of one Warn
 	// each (which flooded at debug level on a garbled call).
 	vocoderDrops int
-	startedAt    time.Time
+	// mutedFrames counts decoded frames replaced by silence because the call
+	// is encrypted and no configured key covers it (RecorderOptions.
+	// MuteEncrypted) — surfaced in the call-ended log so a silent recording
+	// of an encrypted call reads as intended, not as a vocoder fault.
+	mutedFrames int
+	startedAt   time.Time
 	// segment is this file's 0-based index within the call: 0 for the first
 	// (or only) recording, incremented on each per-transmission segment roll
 	// (handleSegment parks the dormant successor with segment+1). Carried on

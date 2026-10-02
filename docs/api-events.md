@@ -117,7 +117,13 @@ Passthrough kinds include: `sdr.attached`, `sdr.detached`, `cc.locked`,
 `mdc1200.message`, `fleetsync.message`, `acars.message`, `m17.linksetup`, `lora.frame`,
 `cchunt.progress`,
 `cchunt.failed`, `hunt.progress`, `hunt.candidate`, `hunt.done`,
-`unit.request`, `dmr.grant.observed`, `dmr.bandplan.learned`.
+`unit.request`, `dmr.grant.observed`, `dmr.bandplan.learned`, and the P25
+unit-signalling kinds `unit.status`, `unit.message`, `call.alert`,
+`unit.ack`, `unit.queued`, `unit.deny`, `unit.function`, `unit.monitor`
+(snake_case payloads, see below), and `call.transcript` (the transcription
+backend's text for a finished recording: `system`, `protocol`, `group_id`,
+`source_id`, `frequency_hz`, `device_serial`, `call_started_at`, `segment`,
+`audio_path`, `text`, `at`).
 
 The in-call passthrough kinds `call.source`, `call.talker`, `call.release` and
 `call.segment` now carry snake_case field names matching the grant DTO
@@ -125,6 +131,25 @@ The in-call passthrough kinds `call.source`, `call.talker`, `call.release` and
 so activity feeds can render them with the same formatter as `grant`. They
 remain passthrough (best-effort) kinds; earlier releases emitted Go-capitalized
 field names for them.
+
+### P25 unit signalling (passthrough, snake_case)
+
+Decoded from the control channel's per-radio TSBKs (layouts pinned
+against SDRTrunk's field positions and reason tables):
+
+| Kind | TSBK | Payload fields |
+|---|---|---|
+| `unit.status` | STS_UPDT 0x18 | `system`, `protocol`, `source_id`, `target_id`, `unit_status`, `user_status`, `at` |
+| `unit.message` | MSG_UPDT 0x1C | `system`, `protocol`, `source_id`, `group_id`, `message` (16-bit), `at` |
+| `call.alert` | CALL_ALRT 0x1F | `system`, `protocol`, `source_id`, `target_id`, `at` — a page from one radio to another |
+| `unit.ack` | ACK_RSP_FNE 0x20 | `response: "ack"`, `target_id`, `service_type`, `service_name`, `source_id` or `wacn` + `system_id` (extended form) |
+| `unit.queued` | QUE_RSP 0x21 | `response: "queued"`, `target_id`, `service_type`, `service_name`, `reason`, `reason_name`, `additional_info_hex` |
+| `unit.deny` | DENY_RSP 0x27 | `response: "deny"`, same fields as queued; `reason_name` from the TIA deny-reason table |
+| `unit.function` | EXT_FNCT_CMD 0x24 | `function`, `function_name` (radio check / inhibit / uninhibit / detach + acks, regroup create / cancel), `arguments`, `source_id` (commanding unit), `target_id` |
+| `unit.monitor` | RAD_MON_CMD 0x1D | `source_id`, `target_id`, `tx_multiplier` |
+
+All eight are also watchable by `alerts:` rules (`on: [unit.deny]`,
+`on: [unit.function]` for an inhibit, …).
 
 ## Stable payload schema
 

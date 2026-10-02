@@ -1062,3 +1062,140 @@ func TestRecordingSegmentsFallsBackToRowPath(t *testing.T) {
 		t.Errorf("unknown id: segs=%v err=%v", segs, err)
 	}
 }
+
+// TestHistorySearchAndFlagFilters: the free-text Query matches aliases /
+// system / protocol case-insensitively and an exact numeric talkgroup or
+// RID, and the Encrypted / Emergency pointers filter on the flags.
+func TestHistorySearchAndFlagFilters(t *testing.T) {
+	db := openTestDB(t)
+	bus := events.NewBus(16)
+	defer bus.Close()
+	cl, err := NewCallLog(db, bus, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cl.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go cl.Run(ctx)
+
+	now := time.Now().UTC().Truncate(time.Second)
+	publish := func(sys, proto, alpha string, grp, src uint32, enc, emer bool, dt time.Duration, dev string) {
+		bus.Publish(events.Event{
+			Kind: events.KindCallStart,
+			Payload: trunking.CallStart{
+				Grant:        trunking.Grant{System: sys, Protocol: proto, GroupID: grp, SourceID: src, FrequencyHz: 1, Encrypted: enc, Emergency: emer},
+				Talkgroup:    &trunking.TalkGroup{ID: grp, AlphaTag: alpha},
+				DeviceSerial: dev,
+				StartedAt:    now.Add(dt),
+			},
+		})
+	}
+	publish("Metro", "p25", "FIRE DISPATCH", 1001, 70001, false, false, -3*time.Hour, "A")
+	publish("Metro", "p25", "PD TAC 2", 1002, 70002, true, false, -2*time.Hour, "B")
+	publish("County", "dmr", "EMS Ops", 2001, 80001, false, true, -1*time.Hour, "C")
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		rows, _ := db.History(context.Background(), HistoryFilter{Limit: 100})
+		if len(rows) == 3 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	count := func(f HistoryFilter) int {
+		rows, err := db.History(context.Background(), f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(rows)
+	}
+	yes, no := true, false
+	cases := []struct {
+		name string
+		f    HistoryFilter
+		want int
+	}{
+		{"alias substring, case-insensitive", HistoryFilter{Query: "fire"}, 1},
+		{"alias substring 2", HistoryFilter{Query: "tac"}, 1},
+		{"system substring", HistoryFilter{Query: "metro"}, 2},
+		{"protocol substring", HistoryFilter{Query: "dmr"}, 1},
+		{"numeric talkgroup", HistoryFilter{Query: "2001"}, 1},
+		{"numeric RID", HistoryFilter{Query: "70002"}, 1},
+		{"no match", HistoryFilter{Query: "zzz"}, 0},
+		{"encrypted only", HistoryFilter{Encrypted: &yes}, 1},
+		{"clear only", HistoryFilter{Encrypted: &no}, 2},
+		{"emergency only", HistoryFilter{Emergency: &yes}, 1},
+		{"protocol exact", HistoryFilter{Protocol: "p25"}, 2},
+		{"combined", HistoryFilter{Query: "metro", Encrypted: &no}, 1},
+	}
+	for _, c := range cases {
+		if got := count(c.f); got != c.want {
+			t.Errorf("%s: rows = %d, want %d", c.name, got, c.want)
+		}
+	}
+}
+
+// TestSetTranscriptAttachesThroughRecordings: a transcript keyed by a
+// segment's recording path lands on the owning call row, later segments
+// append, the search matches it, and an unknown path is a no-op.
+func TestSetTranscriptAttachesThroughRecordings(t *testing.T) {
+	db := openTestDB(t)
+	bus := events.NewBus(16)
+	defer bus.Close()
+	cl, err := NewCallLog(db, bus, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cl.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go cl.Run(ctx)
+
+	start := time.Now().UTC().Truncate(time.Second)
+	g := trunking.Grant{System: "Metro", Protocol: "p25", GroupID: 1001, FrequencyHz: 1}
+	bus.Publish(events.Event{Kind: events.KindCallStart, Payload: trunking.CallStart{Grant: g, DeviceSerial: "V1", StartedAt: start}})
+	bus.Publish(events.Event{Kind: events.KindCallEnd, Payload: trunking.CallEnd{Grant: g, DeviceSerial: "V1", StartedAt: start, EndedAt: start.Add(5 * time.Second), Reason: trunking.EndReasonNormal}})
+	bus.Publish(events.Event{Kind: events.KindCallComplete, Payload: trunking.CallComplete{Grant: g, DeviceSerial: "V1", StartedAt: start, EndedAt: start.Add(2 * time.Second), AudioPath: "/rec/a.wav", Segment: 0}})
+	bus.Publish(events.Event{Kind: events.KindCallComplete, Payload: trunking.CallComplete{Grant: g, DeviceSerial: "V1", StartedAt: start.Add(3 * time.Second), EndedAt: start.Add(5 * time.Second), AudioPath: "/rec/b.wav", CallStartedAt: start, Segment: 1}})
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		var n int
+		db.sql.QueryRow(`SELECT COUNT(*) FROM call_recordings`).Scan(&n)
+		if n == 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := db.SetTranscript(ctx, "/rec/a.wav", " Engine one responding "); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetTranscript(ctx, "/rec/b.wav", "copy that"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetTranscript(ctx, "/rec/nope.wav", "ghost"); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := db.History(ctx, HistoryFilter{Limit: 5})
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("rows=%d err=%v", len(rows), err)
+	}
+	if rows[0].Transcript != "Engine one responding copy that" {
+		t.Fatalf("transcript = %q", rows[0].Transcript)
+	}
+	if n := len(mustHistory(t, db, HistoryFilter{Query: "responding"})); n != 1 {
+		t.Fatalf("search by transcript word → %d rows", n)
+	}
+	if n := len(mustHistory(t, db, HistoryFilter{Query: "ghost"})); n != 0 {
+		t.Fatalf("unknown-path transcript leaked: %d rows", n)
+	}
+}
+
+func mustHistory(t *testing.T, db *DB, f HistoryFilter) []CallRow {
+	t.Helper()
+	rows, err := db.History(context.Background(), f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rows
+}

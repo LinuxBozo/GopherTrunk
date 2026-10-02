@@ -2,9 +2,11 @@ package api
 
 import (
 	"encoding/json"
+	"github.com/MattCheramie/GopherTrunk/internal/trunking"
 	"io"
 	"net/http"
 	"strconv"
+	"time"
 )
 
 // handleScannerStatus returns the unified scanner snapshot the TUI
@@ -35,7 +37,110 @@ func normalizeScannerStatus(st ScannerStatus) ScannerStatus {
 	if st.Conventional.Channels == nil {
 		st.Conventional.Channels = []ConvChannelStatusDTO{}
 	}
+	if st.Avoids == nil {
+		st.Avoids = []trunking.Avoid{}
+	}
 	return st
+}
+
+// scannerHoldRequest is the POST /api/v1/scanner/hold body.
+type scannerHoldRequest struct {
+	System    string `json:"system"`
+	Talkgroup uint32 `json:"talkgroup"`
+}
+
+// handleScannerHold pins the engine to one talkgroup (the scanner "Hold"
+// key): every other grant is dropped until DELETE /api/v1/scanner/hold.
+func (s *Server) handleScannerHold(w http.ResponseWriter, r *http.Request) {
+	if s.scanControl == nil {
+		s.writeError(w, http.StatusServiceUnavailable, "engine not wired for scan control")
+		return
+	}
+	var req scannerHoldRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		s.writeError(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	if req.Talkgroup == 0 {
+		s.writeError(w, http.StatusBadRequest, "talkgroup required")
+		return
+	}
+	st := s.scanControl.Hold(req.System, req.Talkgroup)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "hold": st})
+}
+
+// handleScannerReleaseHold clears the talkgroup hold.
+func (s *Server) handleScannerReleaseHold(w http.ResponseWriter, _ *http.Request) {
+	if s.scanControl == nil {
+		s.writeError(w, http.StatusServiceUnavailable, "engine not wired for scan control")
+		return
+	}
+	had := s.scanControl.ReleaseHold()
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "released": had})
+}
+
+// talkgroupAvoidRequest is the POST /api/v1/talkgroups/{id}/avoid body:
+// a duration ("30m", "2h") or minutes; system scopes the avoid (empty =
+// any system). Default 30 minutes.
+type talkgroupAvoidRequest struct {
+	System   string `json:"system"`
+	Duration string `json:"duration"`
+	Minutes  int    `json:"minutes"`
+}
+
+// handleTalkgroupAvoid temporarily locks a talkgroup out (the scanner
+// "Avoid" key's one-press temporary form).
+func (s *Server) handleTalkgroupAvoid(w http.ResponseWriter, r *http.Request) {
+	if s.scanControl == nil {
+		s.writeError(w, http.StatusServiceUnavailable, "engine not wired for scan control")
+		return
+	}
+	id, err := strconv.ParseUint(r.PathValue("id"), 10, 32)
+	if err != nil || id == 0 {
+		s.writeError(w, http.StatusBadRequest, "invalid talkgroup id")
+		return
+	}
+	var req talkgroupAvoidRequest
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err != io.EOF {
+			s.writeError(w, http.StatusBadRequest, "invalid json body")
+			return
+		}
+	}
+	d := 30 * time.Minute
+	switch {
+	case req.Duration != "":
+		pd, err := time.ParseDuration(req.Duration)
+		if err != nil || pd <= 0 {
+			s.writeError(w, http.StatusBadRequest, "duration must be a positive Go duration (e.g. 30m, 2h)")
+			return
+		}
+		d = pd
+	case req.Minutes != 0:
+		if req.Minutes < 0 {
+			s.writeError(w, http.StatusBadRequest, "minutes must be positive")
+			return
+		}
+		d = time.Duration(req.Minutes) * time.Minute
+	}
+	a := s.scanControl.AvoidTalkgroup(req.System, uint32(id), d)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "avoid": a})
+}
+
+// handleTalkgroupUnavoid clears a temporary lockout early.
+func (s *Server) handleTalkgroupUnavoid(w http.ResponseWriter, r *http.Request) {
+	if s.scanControl == nil {
+		s.writeError(w, http.StatusServiceUnavailable, "engine not wired for scan control")
+		return
+	}
+	id, err := strconv.ParseUint(r.PathValue("id"), 10, 32)
+	if err != nil || id == 0 {
+		s.writeError(w, http.StatusBadRequest, "invalid talkgroup id")
+		return
+	}
+	system := r.URL.Query().Get("system")
+	had := s.scanControl.UnavoidTalkgroup(system, uint32(id))
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "cleared": had})
 }
 
 // scannerSetModeRequest is the PATCH /api/v1/scanner body shape.

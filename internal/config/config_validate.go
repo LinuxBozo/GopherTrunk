@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,6 +41,8 @@ func sectionValidators() []sectionValidator {
 		{"scanner", Config.validateScanner},
 		{"audio", Config.validateAudio},
 		{"broadcast", Config.validateBroadcast},
+		{"alerts", Config.validateAlerts},
+		{"transcription", Config.validateTranscription},
 		{"baseband", Config.validateBaseband},
 		{"web", Config.validateWeb},
 	}
@@ -1129,4 +1132,37 @@ func decodeHexKey(s string) ([]byte, error) {
 		return nil, fmt.Errorf("key is not valid hex: %w", err)
 	}
 	return b, nil
+}
+
+// EncryptionKeyLengths returns the key sizes (bytes) the decoders accept
+// for a normalised algorithm name: DES-OFB 8, TDES 16 (two-key) or 24,
+// AES 16 (AES-128) or 32 (AES-256). The RC4 family is left unconstrained
+// here (DMR Enhanced Privacy and P25 ADP both use 40-bit keys, but the
+// voice chains check the exact length against the header they decode).
+func EncryptionKeyLengths(alg string) []int {
+	switch alg {
+	case "des":
+		return []int{8}
+	case "tdes":
+		return []int{16, 24}
+	case "aes":
+		return []int{16, 32}
+	}
+	return nil
+}
+
+func joinInts(v []int) string {
+	parts := make([]string, len(v))
+	for i, x := range v {
+		parts[i] = strconv.Itoa(x)
+	}
+	return strings.Join(parts, " or ")
+}
+
+func scale(v []int, k int) []int {
+	out := make([]int, len(v))
+	for i, x := range v {
+		out[i] = x * k
+	}
+	return out
 }

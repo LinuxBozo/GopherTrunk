@@ -26,6 +26,8 @@ type Config struct {
 	Scanner        ScannerConfig        `yaml:"scanner"`
 	Audio          AudioConfig          `yaml:"audio"`
 	Broadcast      BroadcastConfig      `yaml:"broadcast"`
+	Alerts         AlertsConfig         `yaml:"alerts"`
+	Transcription  TranscriptionConfig  `yaml:"transcription"`
 	Baseband       BasebandConfig       `yaml:"baseband"`
 	Paging         PagingConfig         `yaml:"paging"`
 	APRS           APRSConfig           `yaml:"aprs"`
@@ -1887,23 +1889,36 @@ type EncryptionKeyConfig struct {
 // and an optional 0x prefix tolerated (the same rule validation applies).
 func (k EncryptionKeyConfig) KeyBytes() ([]byte, error) { return decodeHexKey(k.Key) }
 
-// Validate checks one key on its own: a supported algorithm and a 1..32
-// byte hex key. Duplicate key IDs are a property of the whole list and are
-// checked by the caller (system validation, `replay -key`).
+// Validate checks one key on its own: a supported algorithm and a hex key
+// of a length the algorithm's decoder accepts (DES 8 bytes, TDES 16 or 24,
+// AES 16 or 32, the RC4 family 1..32). Duplicate key IDs are a property of
+// the whole list and are checked by the caller (system validation,
+// `replay -key`).
 func (k EncryptionKeyConfig) Validate() error {
-	switch strings.ToLower(strings.TrimSpace(k.Algorithm)) {
-	case "rc4", "arc4", "adp":
-		// supported: DMR Enhanced Privacy and P25 ADP, one RC4 family
+	alg := k.NormalizedAlgorithm()
+	switch alg {
+	case "rc4", "des", "tdes", "aes":
+		// supported: the RC4 family (DMR Enhanced Privacy / P25 ADP) and
+		// the P25 OFB family (DES-OFB, two-/three-key TDES, AES-128/256)
 	case "":
-		return fmt.Errorf("algorithm is required (use \"rc4\" or \"adp\")")
-	case "aes", "des":
-		return fmt.Errorf("algorithm %q is not supported yet (only \"rc4\" / \"adp\")", k.Algorithm)
+		return fmt.Errorf("algorithm is required (use \"rc4\", \"adp\", \"des\", \"tdes\" or \"aes\")")
 	default:
-		return fmt.Errorf("unknown algorithm %q (use \"rc4\" or \"adp\")", k.Algorithm)
+		return fmt.Errorf("unknown algorithm %q (use \"rc4\", \"adp\", \"des\", \"tdes\" or \"aes\")", k.Algorithm)
 	}
 	b, err := decodeHexKey(k.Key)
 	if err != nil {
 		return err
+	}
+	if want := EncryptionKeyLengths(alg); len(want) > 0 {
+		okLen := false
+		for _, w := range want {
+			if len(b) == w {
+				okLen = true
+			}
+		}
+		if !okLen {
+			return fmt.Errorf("a %s key is %s bytes (%s hex digits), got %d bytes", alg, joinInts(want), joinInts(scale(want, 2)), len(b))
+		}
 	}
 	if len(b) > 32 {
 		return fmt.Errorf("key is %d bytes, must be 1..32", len(b))
@@ -1912,13 +1927,28 @@ func (k EncryptionKeyConfig) Validate() error {
 }
 
 // NormalizedAlgorithm is the canonical lower-case algorithm name the
-// decoders match on: "rc4" for every spelling of the RC4 family — "rc4" /
-// "arc4" (DMR Enhanced Privacy) and "adp" (P25 Advanced Digital Privacy,
-// ALGID 0xAA, the same cipher keyed the same way).
+// decoders match on:
+//   - "rc4" for every spelling of the RC4 family — "rc4" / "arc4" (DMR
+//     Enhanced Privacy) and "adp" (P25 Advanced Digital Privacy, ALGID
+//     0xAA, the same cipher keyed the same way);
+//   - "des" for P25 DES-OFB (ALGID 0x81; "des", "des-ofb", "desofb");
+//   - "tdes" for P25 Triple-DES (ALGID 0x83 two-key / 0x86 three-key;
+//     "tdes", "3des", "triple-des" — the key length picks the variant);
+//   - "aes" for P25 AES (ALGID 0x85 AES-128, 0x84 / 0x89 AES-256; "aes",
+//     "aes-128", "aes-256", "aes128", "aes256" — the key length picks the
+//     variant).
 func (k EncryptionKeyConfig) NormalizedAlgorithm() string {
-	switch a := strings.ToLower(strings.TrimSpace(k.Algorithm)); a {
+	a := strings.ToLower(strings.TrimSpace(k.Algorithm))
+	a = strings.NewReplacer("-", "", "_", "", " ", "").Replace(a)
+	switch a {
 	case "rc4", "arc4", "adp":
 		return "rc4"
+	case "des", "desofb":
+		return "des"
+	case "tdes", "3des", "tripledes", "des3":
+		return "tdes"
+	case "aes", "aes128", "aes256", "aesofb", "aes256ofb", "aes128ofb":
+		return "aes"
 	default:
 		return a
 	}
@@ -2059,6 +2089,16 @@ type RecordingsConfig struct {
 	// encrypted calls (with their backfilled encryption / alg / key
 	// metadata) to them. See issue #897.
 	SkipEncrypted bool `yaml:"skip_encrypted"`
+	// MuteEncrypted, when true, records and streams SILENCE for an encrypted
+	// call that no configured encryption_keys entry decrypts, instead of the
+	// vocoder's random-parameter rendering of the ciphertext — the behaviour
+	// of every hardware scanner and of SDRTrunk / trunk-recorder / DSD-FME.
+	// The .raw / .imb / .amb sidecars still hold the ciphertext frames and
+	// the call is logged, uploaded and shown exactly as before; only the
+	// PCM is silent. A call decrypted in-process (key configured for its key
+	// id) is never muted. Default false (legacy: ciphertext through the
+	// vocoder).
+	MuteEncrypted bool `yaml:"mute_encrypted"`
 	// CryptoCapturePath, when set, opts into the cryptolab crypto-frame
 	// bridge: for each encrypted P25 Phase 1 superframe — and each
 	// encrypted DMR voice superframe (issue #1187) — the voice composer

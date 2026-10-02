@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/MattCheramie/GopherTrunk/internal/alerts"
 	"github.com/MattCheramie/GopherTrunk/internal/api"
 	"github.com/MattCheramie/GopherTrunk/internal/api/rigctld"
 	"github.com/MattCheramie/GopherTrunk/internal/autotune"
@@ -34,6 +35,7 @@ import (
 	"github.com/MattCheramie/GopherTrunk/internal/scanner/conventional"
 	"github.com/MattCheramie/GopherTrunk/internal/scanner/dmrlcn"
 	"github.com/MattCheramie/GopherTrunk/internal/scanner/widebandt2"
+	"github.com/MattCheramie/GopherTrunk/internal/transcribe"
 
 	adsbbeast "github.com/MattCheramie/GopherTrunk/internal/radio/adsb/beast"
 	adsbppm "github.com/MattCheramie/GopherTrunk/internal/radio/adsb/ppm"
@@ -467,6 +469,8 @@ type Daemon struct {
 	iqAutoRec    *iqAutoRecorder
 	iqAutoRecSub *events.Subscription
 	broadcast    *broadcast.Manager
+	alerts       *alerts.Manager
+	transcriber  *transcribe.Manager
 	grantHooks   []*broadcast.GrantWebhook
 	composer     *composer.Composer
 	player       *player.Player
@@ -1938,6 +1942,15 @@ func NewDaemonWithPath(cfg config.Config, cfgPath string, version string, log *s
 	if err := d.buildStorage(cfg, log); err != nil {
 		return nil, err
 	}
+	// Speech-to-text backend — optional (transcription.enabled). Built after
+	// storage so transcripts can be stored on the call rows; it subscribes to
+	// the bus here, before Run, so no finished recording is missed.
+	if tr, err := buildTranscriber(cfg.Transcription, d.bus, d.db, log); err != nil {
+		return nil, fmt.Errorf("daemon: transcription: %w", err)
+	} else if tr != nil {
+		d.transcriber = tr
+		log.Info("transcription enabled", "url", cfg.Transcription.URL, "model", cfg.Transcription.ModelOrDefault())
+	}
 
 	if err := d.buildAPIServer(cfg, version, log); err != nil {
 		return nil, err
@@ -2274,6 +2287,19 @@ func (d *Daemon) buildOutboundFeeds(cfg config.Config, log *slog.Logger, dispLoc
 			log.Info("grant webhook sinks enabled", "count", len(hooks))
 		}
 	}
+
+	// Alert rules + notification channels — optional. Built only when at
+	// least one rule is enabled.
+	{
+		mgr, err := buildAlertsManager(cfg.Alerts, d.bus, log)
+		if err != nil {
+			return fmt.Errorf("daemon: alerts: %w", err)
+		}
+		if mgr != nil {
+			d.alerts = mgr
+			log.Info("alert rules enabled", "rules", mgr.Rules(), "channels", mgr.Channels())
+		}
+	}
 	return nil
 }
 
@@ -2305,6 +2331,8 @@ func (d *Daemon) buildRecorderAndVoiceDecoder(cfg config.Config, log *slog.Logge
 			WriteRaw:      cfg.Recordings.WriteRaw,
 			WriteMBE:      cfg.Recordings.MBEFiles,
 			SkipEncrypted: cfg.Recordings.SkipEncrypted,
+			MuteEncrypted: cfg.Recordings.MuteEncrypted,
+			KeyConfigured: buildKeyConfigured(cfg.Trunking.Systems),
 			// Trunk-recorder .json sidecar per recording; tri-state, defaults ON.
 			WriteCallJSON:      cfg.Recordings.WriteCallJSON == nil || *cfg.Recordings.WriteCallJSON,
 			VocoderForProtocol: vocoderMap,
@@ -3008,6 +3036,10 @@ func (d *Daemon) buildAPIServer(cfg config.Config, version string, log *slog.Log
 		if d.affiliations != nil {
 			opts.Affiliations = affiliationProvider{d.affiliations}
 		}
+		if d.engine != nil {
+			opts.Patches = d.engine
+			opts.ScanControl = d.engine
+		}
 		if d.siteTracker != nil {
 			opts.Sites = sitesProvider{d.siteTracker}
 		}
@@ -3058,6 +3090,12 @@ func (d *Daemon) buildAPIServer(cfg config.Config, version string, log *slog.Log
 		}
 		if d.broadcast != nil {
 			opts.Broadcast = broadcastStatus{d.broadcast}
+		}
+		if d.alerts != nil {
+			opts.Alerts = d.alerts
+		}
+		if d.transcriber != nil {
+			opts.Transcription = d.transcriber
 		}
 		cfgCopy := cfg
 		opts.Runtime = &runtimeSnapshot{
@@ -3468,6 +3506,16 @@ func (d *Daemon) Run(ctx context.Context) error {
 	if d.broadcast != nil {
 		d.spawn(runCtx, "broadcast", false, func(ctx context.Context) error {
 			return d.broadcast.Run(ctx)
+		})
+	}
+	if d.alerts != nil {
+		d.spawn(runCtx, "alerts", false, func(ctx context.Context) error {
+			return d.alerts.Run(ctx)
+		})
+	}
+	if d.transcriber != nil {
+		d.spawn(runCtx, "transcription", false, func(ctx context.Context) error {
+			return d.transcriber.Run(ctx)
 		})
 	}
 	for _, h := range d.grantHooks {
@@ -4110,6 +4158,12 @@ func (d *Daemon) Close() {
 		}
 		if d.broadcast != nil {
 			d.closeStage("broadcast", func() { _ = d.broadcast.Close() })
+		}
+		if d.alerts != nil {
+			d.closeStage("alerts", func() { _ = d.alerts.Close() })
+		}
+		if d.transcriber != nil {
+			d.closeStage("transcription", func() { _ = d.transcriber.Close() })
 		}
 		for _, h := range d.grantHooks {
 			d.closeStage("grant-hook", func() { _ = h.Close() })

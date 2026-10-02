@@ -13,6 +13,9 @@ import type { ClientConfig } from "../api/client";
 // the <audio> element. The whole file is small (seconds of 8 kHz mono PCM), so a
 // one-shot fetch is cheap and sidesteps every range/streaming quirk; a failed
 // fetch surfaces as a visible message rather than a silent dead player.
+const PLAYBACK_SPEEDS = [0.75, 1, 1.25, 1.5, 2];
+const SPEED_KEY = "gt.recordingPlayer.speed";
+
 export function RecordingPlayer({
   cfg,
   callId,
@@ -20,6 +23,24 @@ export function RecordingPlayer({
   cfg: ClientConfig;
   callId: number;
 }) {
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  // Playback speed is remembered across recordings in this tab: skimming a
+  // long shift of calls at 1.5× is how every call-playback app is used.
+  const [speed, setSpeed] = useState<number>(() => {
+    try {
+      const v = Number(window.localStorage.getItem(SPEED_KEY));
+      return PLAYBACK_SPEEDS.includes(v) ? v : 1;
+    } catch {
+      return 1;
+    }
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SPEED_KEY, String(speed));
+    } catch {
+      // storage unavailable (private window) — speed stays per-mount
+    }
+  }, [speed]);
   const [objURL, setObjURL] = useState<string | null>(null);
   const [ext, setExt] = useState<"wav" | "mp3" | "flac">("wav");
   const [error, setError] = useState<string | null>(null);
@@ -107,14 +128,44 @@ export function RecordingPlayer({
   }
   return (
     <>
-      <audio controls preload="metadata" className="w-full" src={objURL} />
-      <a
-        className="inline-block text-xs text-accent hover:underline mt-1"
-        href={objURL}
-        download={`call-${callId}.${ext}`}
-      >
-        Download recording
-      </a>
+      <audio
+        ref={audioRef}
+        controls
+        preload="metadata"
+        className="w-full"
+        src={objURL}
+        onLoadedMetadata={(e) => {
+          e.currentTarget.playbackRate = speed;
+        }}
+      />
+      <div className="flex items-center gap-3 mt-1 text-xs">
+        <a
+          className="inline-block text-accent hover:underline"
+          href={objURL}
+          download={`call-${callId}.${ext}`}
+        >
+          Download recording
+        </a>
+        <label className="flex items-center gap-1 text-muted">
+          Speed
+          <select
+            className="input py-0 px-1 text-xs"
+            value={speed}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              setSpeed(v);
+              if (audioRef.current) audioRef.current.playbackRate = v;
+            }}
+            aria-label="Playback speed"
+          >
+            {PLAYBACK_SPEEDS.map((v) => (
+              <option key={v} value={v}>
+                {v}×
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
     </>
   );
 }
