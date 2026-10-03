@@ -1381,6 +1381,9 @@ scanner:
   #   - label: "Sheriff Repeater"
   #     frequency_hz: 155895000
   #     mode: fm
+  #     # In-channel power (dBFS, measured through a ±8 kHz channel
+  #     # filter): other carriers elsewhere in the SDR's span no longer
+  #     # hold squelch open (#1239).
   #     squelch_dbfs: -48
   #     hangtime_ms: 1500
   #     priority: 4

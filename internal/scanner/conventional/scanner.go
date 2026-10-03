@@ -33,9 +33,10 @@ type Channel struct {
 	// carrier-to-noise squelch (SquelchCNDb) instead of SquelchDbFS.
 	Mode string
 	// SquelchDbFS is the threshold above which the scanner declares
-	// "carrier present". A typical value for an RTL-SDR-class
-	// receiver is around -50 dBFS; tune per channel as needed.
-	// Ignored on an AM channel.
+	// "carrier present", compared against the CHANNEL's power
+	// (channel_power.go, issue #1239), not the whole SDR span. A
+	// typical value for an RTL-SDR-class receiver is around -50 dBFS;
+	// tune per channel as needed. Ignored on an AM channel.
 	SquelchDbFS float64
 	// SquelchCNDb is an AM channel's open threshold: the carrier's C/N
 	// in one ~188 Hz bin, measured from the channel's own spectrum
@@ -253,6 +254,10 @@ type Scanner struct {
 	// channels[i] is an AM channel, and then replaces the IQ-power
 	// squelch with a carrier-to-noise one. Same lifecycle as detectors.
 	amMeters []*amCNMeter
+	// powerMeters parallels channels: powerMeters[i] is the in-channel
+	// power meter of an FM channel (nil for AM, or without a sample
+	// rate). Issue #1239.
+	powerMeters []*channelPowerMeter
 	// data parallels channels: data[i] is non-nil iff channels[i] has
 	// data decoders (Channel.Decoders) that could be built. Same
 	// lifecycle as detectors.
@@ -427,10 +432,13 @@ func New(opts Options) (*Scanner, error) {
 	}
 	data := make([]*channelData, len(channels))
 	amMeters := make([]*amCNMeter, len(channels))
+	powerMeters := make([]*channelPowerMeter, len(channels))
 	for i, ch := range channels {
 		data[i] = buildChannelData(ch, opts.SampleRateHz, opts.DataDecoders, opts.Log)
 		amMeters[i] = buildAMMeter(ch, opts.SampleRateHz, opts.Log)
+		powerMeters[i] = buildChannelPowerMeter(ch, opts.SampleRateHz)
 	}
+	warnSpanPowerSquelch(channels, opts.SampleRateHz, opts.Log)
 	// Restore persisted lockouts by frequency — the operator's lockout
 	// memory, applied before the first pick so a locked channel is never
 	// dwelt on even once after a restart.
@@ -453,6 +461,7 @@ func New(opts Options) (*Scanner, error) {
 		detectors:        detectors,
 		data:             data,
 		amMeters:         amMeters,
+		powerMeters:      powerMeters,
 		state:            StateScanning,
 		dwellIndex:       -1,
 		forcedDwellIndex: -1,
@@ -649,6 +658,9 @@ func (s *Scanner) Run(ctx context.Context) error {
 		}
 		if am := s.amMeterFor(idx); am != nil {
 			am.reset()
+		}
+		if pm := s.powerMeterFor(idx); pm != nil {
+			pm.reset()
 		}
 
 		// Wait for either squelch to break, the min-dwell timer to
@@ -1134,6 +1146,7 @@ func (s *Scanner) AddTemporaryChannel(ch Channel) int {
 	}
 	cd := buildChannelData(ch, s.opts.SampleRateHz, s.opts.DataDecoders, s.log)
 	am := buildAMMeter(ch, s.opts.SampleRateHz, s.log)
+	pm := buildChannelPowerMeter(ch, s.opts.SampleRateHz)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	idx := len(s.channels)
@@ -1141,6 +1154,7 @@ func (s *Scanner) AddTemporaryChannel(ch Channel) int {
 	s.detectors = append(s.detectors, det)
 	s.data = append(s.data, cd)
 	s.amMeters = append(s.amMeters, am)
+	s.powerMeters = append(s.powerMeters, pm)
 	s.lastBreakAt = append(s.lastBreakAt, time.Time{})
 	s.tempChannels[idx] = true
 	s.forcedDwellIndex = idx
@@ -1185,6 +1199,7 @@ func (s *Scanner) RemoveTemporaryChannel(idx int) bool {
 	s.detectors = append(s.detectors[:idx], s.detectors[idx+1:]...)
 	s.data = append(s.data[:idx], s.data[idx+1:]...)
 	s.amMeters = append(s.amMeters[:idx], s.amMeters[idx+1:]...)
+	s.powerMeters = append(s.powerMeters[:idx], s.powerMeters[idx+1:]...)
 	s.lastBreakAt = append(s.lastBreakAt[:idx], s.lastBreakAt[idx+1:]...)
 	// Rebuild the tempChannels + lockedOut sets with shifted indices.
 	// Both maps share the same shift rule: drop the removed entry,
