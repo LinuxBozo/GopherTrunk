@@ -7,6 +7,8 @@ for tagged releases.
 
 ## [Unreleased]
 
+## [v1.2.2] — 2026-10-03
+
 ### Added
 - **`replay -key` and `replay -format disc`: check an encrypted recording
   offline through the daemon's own voice path, with the release binary
