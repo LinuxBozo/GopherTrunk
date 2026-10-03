@@ -14,6 +14,22 @@ for tagged releases.
   tuned, so a mixed scan list (VHF FM, air-band AM, UHF) can give each channel
   the gain it needs. A channel without one runs at the device's configured
   gain. If no channel sets a gain, the scanner never touches it.
+
+### Fixed
+- **Conventional scanner: FM squelch now measures the channel, not the SDR's
+  whole span (#1239).** `squelch_dbfs` was compared against the RMS power of
+  the entire span (2.4 MHz on an RTL-SDR), so any other carrier in the span,
+  or the noise floor an auto-gain tuner holds near full scale, kept
+  "carrier present" true on every channel. Untoned channels then opened calls
+  on empty air, and toned channels were gated by the CTCSS/DCS detector alone
+  instead of carrier AND tone. The squelch now reads the channel's power
+  through the same ±8 kHz channel filter the tone detectors use. A real
+  on-channel signal reads the same level as before, so existing thresholds
+  keep their meaning; only signal outside the channel stops counting.
+
+## [v1.2.2] — 2026-10-03
+
+### Added
 - **`replay -key` and `replay -format disc`: check an encrypted recording
   offline through the daemon's own voice path, with the release binary
   (#1187).** `-key ALG:KEYID:HEXKEY` (repeatable; `rc4` for DMR Enhanced
@@ -106,16 +122,6 @@ for tagged releases.
   live scanner run. See docs/acars.md.
 
 ### Fixed
-- **Conventional scanner: FM squelch now measures the channel, not the SDR's
-  whole span (#1239).** `squelch_dbfs` was compared against the RMS power of
-  the entire span (2.4 MHz on an RTL-SDR), so any other carrier in the span,
-  or the noise floor an auto-gain tuner holds near full scale, kept
-  "carrier present" true on every channel. Untoned channels then opened calls
-  on empty air, and toned channels were gated by the CTCSS/DCS detector alone
-  instead of carrier AND tone. The squelch now reads the channel's power
-  through the same ±8 kHz channel filter the tone detectors use. A real
-  on-channel signal reads the same level as before, so existing thresholds
-  keep their meaning; only signal outside the channel stops counting.
 - **`replay -record-voice` lost the start of every call, and whole short
   calls (#1187).** The decode runs far faster than real time, and every IQ
   chunk decoded between the grant and the voice chain subscribing was
