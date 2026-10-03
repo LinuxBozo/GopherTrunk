@@ -8,6 +8,12 @@ for tagged releases.
 ## [Unreleased]
 
 ### Added
+- **Per-channel gain on the conventional scanner (#1239).**
+  `scanner.conventional[].gain` (`"auto"` or tenths of a dB, like
+  `sdr.devices[].gain`) is written to the scanner SDR before the channel is
+  tuned, so a mixed scan list (VHF FM, air-band AM, UHF) can give each channel
+  the gain it needs. A channel without one runs at the device's configured
+  gain. If no channel sets a gain, the scanner never touches it.
 - **`replay -key` and `replay -format disc`: check an encrypted recording
   offline through the daemon's own voice path, with the release binary
   (#1187).** `-key ALG:KEYID:HEXKEY` (repeatable; `rc4` for DMR Enhanced

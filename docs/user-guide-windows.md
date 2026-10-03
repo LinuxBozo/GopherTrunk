@@ -1067,6 +1067,7 @@ scanner:
 | `label` | Display name |
 | `frequency_hz` | Tuner centre frequency |
 | `mode` | `fm` (default), `nfm`, or `am` (the VHF air band — see below) |
+| `gain` | Optional tuner gain for this channel on the scanner SDR: `"auto"` or tenths of a dB (`"280"` = 28 dB). Empty uses the device's gain |
 | `squelch_dbfs` | Squelch threshold in dBFS (FM channels), measured on the channel itself (±8 kHz), not the SDR's whole span |
 | `squelch_cn_db` | AM channels: carrier-to-noise open threshold in dB (default 12) |
 | `hangtime_ms` | Carrier-lost dwell before hopping |

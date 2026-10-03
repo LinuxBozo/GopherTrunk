@@ -1385,6 +1385,12 @@ scanner:
   #     # filter): other carriers elsewhere in the SDR's span no longer
   #     # hold squelch open (#1239).
   #     squelch_dbfs: -48
+  #     # Optional per-channel tuner gain on the scanner SDR (#1239):
+  #     # "auto" or tenths of a dB, like sdr.devices[].gain. Lets a mixed
+  #     # scan list (VHF FM, air-band AM, UHF) give each channel its own
+  #     # gain. Empty = the device's gain; if no channel sets one the
+  #     # scanner never touches the gain.
+  #     # gain: "280"
   #     hangtime_ms: 1500
   #     priority: 4
   #     # Optional fixed talkgroup ID for the API / call log / scan-type

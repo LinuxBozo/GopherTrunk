@@ -85,6 +85,13 @@ type Channel struct {
 	// tone gating and the scanner behaves identically to its
 	// pre-tone version. Detectors: ctcss.go, dcs.go.
 	Tone ToneConfig
+	// GainTenthDB is this channel's tuner gain, in tenths of a dB
+	// (negative = automatic), applied to the scanner's SDR before the
+	// channel is tuned. Only meaningful with GainSet; a channel without
+	// its own gain runs at Options.DefaultGainTenthDB. See gain.go
+	// (issue #1239).
+	GainTenthDB int
+	GainSet     bool
 	// Decoders names the data decoders (DecoderMDC1200, DecoderFleetSync,
 	// DecoderACARS)
 	// to run on this channel's IQ while the scanner is on it, built through
@@ -177,6 +184,14 @@ type Options struct {
 	// Decoders (issue #1220). Nil disables them: a channel that names
 	// decoders then WARNs at construction and scans without them.
 	DataDecoders DataDecoderFactory
+
+	// Gain programs per-channel gain (Channel.GainTenthDB) on the
+	// scanner's SDR. Nil disables per-channel gain. See gain.go.
+	Gain GainSetter
+	// DefaultGainTenthDB is the gain a channel without its own runs at
+	// once any channel sets one: the device's configured gain, negative
+	// for automatic.
+	DefaultGainTenthDB int
 
 	// LockedOutHz seeds the runtime lockout set from a persisted store
 	// (storage.ConvLockoutStore): every channel whose frequency appears
@@ -292,6 +307,14 @@ type Scanner struct {
 	// polarity WARN has fired, so a misconfigured channel warns once
 	// instead of on every scan pass. Scan-goroutine only.
 	dcsPolarityWarned map[*DCSDetector]bool
+
+	// Per-channel gain state (gain.go). gainActive turns on once any
+	// channel sets a gain; appliedGain is the gain last programmed (seeded
+	// with the device default the pool applied at open); gainWarned
+	// rate-limits write failures to one WARN per value. Guarded by mu.
+	gainActive  bool
+	appliedGain int
+	gainWarned  map[int]bool
 	// squelchState publishes beginDwell's live per-chunk squelch
 	// decision for SquelchOpen (one of the squelch* constants).
 	// Atomic because the composer's FM chain polls it from its own
@@ -470,6 +493,9 @@ func New(opts Options) (*Scanner, error) {
 		lockedOut:        lockedOut,
 
 		dcsPolarityWarned: make(map[*DCSDetector]bool),
+		gainActive:        usesChannelGain(channels),
+		appliedGain:       opts.DefaultGainTenthDB,
+		gainWarned:        make(map[int]bool),
 	}, nil
 }
 
@@ -630,6 +656,7 @@ func (s *Scanner) Run(ctx context.Context) error {
 			continue
 		}
 
+		s.applyChannelGain(ch)
 		if err := s.opts.Tuner.SetCenterFreq(ch.FrequencyHz); err != nil {
 			s.log.Warn("conv: tune failed", "freq_hz", ch.FrequencyHz, "err", err)
 			s.sleep(ctx, 100*time.Millisecond)
