@@ -484,6 +484,7 @@ export function ScannerSection() {
             SquelchHysteresisDb: 0,
             Priority: 0,
             TalkgroupID: 0,
+            Gain: "",
             Tone: { Mode: "", CTCSSHz: 0, DCSCode: "", DCSPolarity: "" },
             Decoders: null,
           })}
@@ -520,6 +521,13 @@ export function ScannerSection() {
                 <NumberField label="Squelch hysteresis (dB)" step={0.1} value={ch.SquelchHysteresisDb} onChange={(x) => setCh({ ...ch, SquelchHysteresisDb: x })} />
                 <NumberField label="Priority" value={ch.Priority} onChange={(x) => setCh({ ...ch, Priority: x })} />
                 <NumberField label="Talkgroup ID (0 = positional)" value={ch.TalkgroupID} onChange={(x) => setCh({ ...ch, TalkgroupID: x })} />
+                <TextField
+                  label="Gain"
+                  value={ch.Gain ?? ""}
+                  onChange={(x) => setCh({ ...ch, Gain: x })}
+                  placeholder="device gain"
+                  help="Tuner gain for this channel: auto, or tenths of a dB (280 = 28 dB). Empty uses the scanner SDR gain."
+                />
                 <TextField
                   label="Data decoders"
                   value={formatCommaList(ch.Decoders)}

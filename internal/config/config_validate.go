@@ -746,6 +746,11 @@ func validateConvChannel(i int, ch ConvChannelConfig) error {
 	if ch.SquelchHysteresisDb < 0 {
 		return fmt.Errorf("scanner.conventional[%d]: squelch_hysteresis_db must be ≥ 0", i)
 	}
+	if g := strings.TrimSpace(ch.Gain); g != "" && !strings.EqualFold(g, "auto") {
+		if _, err := strconv.ParseFloat(strings.ReplaceAll(g, ",", "."), 64); err != nil {
+			return fmt.Errorf("scanner.conventional[%d]: gain %q must be \"auto\" or tenths of a dB (e.g. \"280\")", i, ch.Gain)
+		}
+	}
 	switch ch.Tone.Mode {
 	case "", "none":
 	case "ctcss":

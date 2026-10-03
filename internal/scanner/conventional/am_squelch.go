@@ -236,11 +236,16 @@ func (s *Scanner) amMeterFor(idx int) *amCNMeter {
 
 // squelchMeasure returns the per-chunk squelch statistic for channel idx and
 // the level at which it opens: carrier-to-noise (dB) against SquelchCNDb on
-// an AM channel, IQ power (dBFS) against SquelchDbFS otherwise. The dwell's
-// hysteresis applies the same way to either.
+// an AM channel, in-channel power (dBFS, channel_power.go) against
+// SquelchDbFS otherwise — whole-span power only when the scanner has no
+// sample rate to build the channel filter from. The dwell's hysteresis
+// applies the same way to either.
 func (s *Scanner) squelchMeasure(idx int, ch Channel) (level func([]complex64) float64, open float64) {
 	if am := s.amMeterFor(idx); am != nil {
 		return am.process, ch.SquelchCNDb
+	}
+	if pm := s.powerMeterFor(idx); pm != nil {
+		return pm.process, ch.SquelchDbFS
 	}
 	return PowerDbFS, ch.SquelchDbFS
 }

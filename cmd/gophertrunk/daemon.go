@@ -1762,7 +1762,10 @@ func NewDaemonWithPath(cfg config.Config, cfgPath string, version string, log *s
 			convEntry := voiceEntries[len(voiceEntries)-1]
 			channels := make([]conventional.Channel, 0, len(cfg.Scanner.Conventional))
 			for _, ch := range cfg.Scanner.Conventional {
+				gainTenthDB, gainSet := convChannelGain(ch, log)
 				channels = append(channels, conventional.Channel{
+					GainTenthDB: gainTenthDB,
+					GainSet:     gainSet,
 					Label:       ch.Label,
 					FrequencyHz: ch.FrequencyHz,
 					Mode:        ch.Mode,
@@ -1840,6 +1843,11 @@ func NewDaemonWithPath(cfg config.Config, cfgPath string, version string, log *s
 				// kinds as the dedicated-SDR receivers, stamped with this
 				// scanner's serial and the channel's frequency.
 				DataDecoders: convDataDecoderFactory(d.bus, convEntry.Info.Serial, log),
+				// Per-channel gain (#1239) goes to the device itself — the
+				// broker has no gain control — and a channel without one
+				// returns to the device's configured gain.
+				Gain:               convEntry.Device,
+				DefaultGainTenthDB: convDeviceGain(convEntry),
 			})
 			if err != nil {
 				return nil, fmt.Errorf("daemon: conv scanner: %w", err)
