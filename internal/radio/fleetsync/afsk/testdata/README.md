@@ -15,7 +15,7 @@ the carrier, 48 kHz output), then peak-normalised to 0.9 and written as
 headerless interleaved int16 I/Q (`cs16`, little-endian). Replay one with:
 
 ```
-GT_FLEETSYNC_IQ=internal/radio/fleetsync/afsk/testdata/fleetsync2_fleet107_unit1772_48k.cs16 \
+GT_FLEETSYNC_IQ=$PWD/internal/radio/fleetsync/afsk/testdata/fleetsync2_fleet107_unit1772_48k.cs16 \
 GT_FLEETSYNC_FORMAT=cs16 GT_FLEETSYNC_RATE=48000 \
   go test ./cmd/gophertrunk -run 'TestFleetSyncReplay$' -v
 ```
