@@ -69,7 +69,10 @@ tag. Anything failing means the tag isn't ready.
    does the same bump after publishing and opens a
    `release/refs-vX.Y.Z` PR for it — merge that promptly, because
    the `version-refs` CI job is red on `main` until the references
-   catch up with the tag.
+   catch up with the tag. If the repository does not allow GitHub
+   Actions to create pull requests, the job still pushes the branch
+   and leaves a warning with a compare link in the run summary;
+   open the PR from that link (the release run stays green).
 
 2. **Create and push the annotated tag.** Annotated (not
    lightweight) so `git describe` produces a useful version string

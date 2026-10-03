@@ -463,15 +463,31 @@ jobs:
           git commit -m "release: reference ${VERSION} in CHANGELOG, README and the docs site" \
             -m "Automated by release.yml (version-refs job) because the tag was pushed without \`make release-prep VERSION=${VERSION}\`. See docs/release.md."
           git push --force -u origin "$BRANCH"
+          # Opening the PR is best-effort. With the repository setting
+          # "Allow GitHub Actions to create and approve pull requests" off,
+          # GitHub refuses createPullRequest; that used to fail this job and
+          # turn every release run red (v1.1.7..v1.2.1) even though the
+          # release was published and the branch pushed. Fall back to a
+          # warning + a one-click compare link instead.
+          COMPARE_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/main...${BRANCH}?expand=1"
           if ! gh pr view "$BRANCH" --json number >/dev/null 2>&1; then
-            gh pr create --base main --head "$BRANCH" \
+            if ! gh pr create --base main --head "$BRANCH" \
               --title "release: reference ${VERSION} in CHANGELOG, README and the docs site" \
               --body "$(cat <<EOF
           The ${VERSION} tag was pushed without promoting \`[Unreleased]\` / bumping the README Quick Start and docs-site fallback (docs/release.md, step 1). This PR does that; \`make version-refs-check\` (the \`version-refs\` CI job) stays red on \`main\` until it merges.
 
           Opened by \`release.yml\` with the repository token, so GitHub does not fire \`pull_request\` checks for it; the workflow dispatches CI on this branch instead. If the required checks still show as missing, push any commit to this branch or close and reopen the PR.
           EOF
-          )"
+          )"; then
+              echo "::warning title=Version references::Could not open the PR (Actions may not create PRs in this repo). Branch ${BRANCH} is pushed; open it by hand: ${COMPARE_URL}"
+              {
+                echo "### Version references need a PR"
+                echo
+                echo "\`${BRANCH}\` bumps CHANGELOG / README / docs fallback to ${VERSION}, but this workflow is not allowed to open the PR."
+                echo
+                echo "Open it here: ${COMPARE_URL}"
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
           fi
           # GITHUB_TOKEN-created PRs never trigger pull_request workflows, but
           # workflow_dispatch is explicitly exempt from that rule.
