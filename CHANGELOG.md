@@ -7,6 +7,8 @@ for tagged releases.
 
 ## [Unreleased]
 
+## [v1.2.3] — 2026-10-04
+
 ### Added
 - **`gophertrunk power`: an rtl_power-style sweep logger that also works
   over rtl_tcp (#1230).** It steps a local SDR, or a dongle behind an rtl_tcp
