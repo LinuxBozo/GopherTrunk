@@ -7,6 +7,18 @@ for tagged releases.
 
 ## [Unreleased]
 
+### Fixed
+- **P25 explicit-channel voice updates were followed to the band plan's base
+  frequency (#1242).** Opcode 0x03 (Group Voice Channel Update – Explicit)
+  was decoded with the group voice grant's layout, so the channel was read
+  from the reserved byte: every explicit update resolved to channel ID 0 and a
+  near-zero channel number (450.000 MHz on the reporter's UHF site) with a
+  garbage talkgroup and source, and the call timed out on an empty carrier. It
+  now reads the downlink channel and group at their real positions (SDRTrunk /
+  OP25 layout); the update carries no source unit.
+
+## [v1.2.3] — 2026-10-03
+
 ### Added
 - **`gophertrunk power`: an rtl_power-style sweep logger that also works
   over rtl_tcp (#1230).** It steps a local SDR, or a dongle behind an rtl_tcp
@@ -133,14 +145,6 @@ for tagged releases.
   live scanner run. See docs/acars.md.
 
 ### Fixed
-- **P25 explicit-channel voice updates were followed to the band plan's base
-  frequency (#1242).** Opcode 0x03 (Group Voice Channel Update – Explicit)
-  was decoded with the group voice grant's layout, so the channel was read
-  from the reserved byte: every explicit update resolved to channel ID 0 and a
-  near-zero channel number (450.000 MHz on the reporter's UHF site) with a
-  garbage talkgroup and source, and the call timed out on an empty carrier. It
-  now reads the downlink channel and group at their real positions (SDRTrunk /
-  OP25 layout); the update carries no source unit.
 - **`replay -record-voice` lost the start of every call, and whole short
   calls (#1187).** The decode runs far faster than real time, and every IQ
   chunk decoded between the grant and the voice chain subscribing was
