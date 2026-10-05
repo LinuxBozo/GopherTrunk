@@ -217,11 +217,43 @@ func AssembleGroupVoiceChannelUpdate(u GroupVoiceChannelUpdate) [8]byte {
 	return p
 }
 
-// ParseGroupVoiceChannelUpdateExplicit decodes opcode 0x03, the
-// explicit-channel group voice update. It carries the same channel +
-// group + source fields as a group voice grant (opcode 0x00).
-func ParseGroupVoiceChannelUpdateExplicit(p [8]byte) GroupVoiceChannelGrant {
-	return ParseGroupVoiceChannelGrant(p)
+// GroupVoiceChannelUpdateExplicit (opcode 0x03) — a group voice channel
+// update that names the downlink AND uplink channels explicitly. Its
+// layout is NOT the group voice grant's (opcode 0x00): there is no source
+// unit, and the channel fields sit one byte later. Payload layout (MSB
+// first; SDRTrunk GroupVoiceChannelGrantUpdateExplicit bit indexes 16-79,
+// OP25 tk_p25.py opcode 0x03):
+//
+//	byte 0    : service options
+//	byte 1    : reserved
+//	bytes 2-3 : downlink (transmit) channel (4-bit ID + 12-bit number)
+//	bytes 4-5 : uplink (receive) channel (4-bit ID + 12-bit number)
+//	bytes 6-7 : group address
+type GroupVoiceChannelUpdateExplicit struct {
+	ServiceOptions        uint8
+	DownlinkChannelID     uint8
+	DownlinkChannelNumber uint16
+	UplinkChannelID       uint8
+	UplinkChannelNumber   uint16
+	GroupAddress          uint16
+}
+
+// ParseGroupVoiceChannelUpdateExplicit decodes payload bytes for opcode
+// 0x03. It used to reuse ParseGroupVoiceChannelGrant, which read the
+// channel from the reserved byte + the downlink channel's high byte, so
+// every explicit update resolved to channel ID 0 / a tiny channel number
+// (the band plan's base frequency) with a garbage talkgroup — issue #1242.
+func ParseGroupVoiceChannelUpdateExplicit(p [8]byte) GroupVoiceChannelUpdateExplicit {
+	dl := binary.BigEndian.Uint16(p[2:4])
+	ul := binary.BigEndian.Uint16(p[4:6])
+	return GroupVoiceChannelUpdateExplicit{
+		ServiceOptions:        p[0],
+		DownlinkChannelID:     uint8(dl >> 12),
+		DownlinkChannelNumber: dl & 0x0FFF,
+		UplinkChannelID:       uint8(ul >> 12),
+		UplinkChannelNumber:   ul & 0x0FFF,
+		GroupAddress:          binary.BigEndian.Uint16(p[6:8]),
+	}
 }
 
 // ServiceOptions decodes the 8-bit SVC_OPTIONS field a P25 voice grant

@@ -96,6 +96,13 @@ confirmation before any close-as-completed.
   through the standard `Opcode.String()` OSP map (it mislabels — MFID 0x90 opcode
   0x00 reads GRP_V_CH_GRANT); `ambtOpcodeLabel` names only the decoded AMBT forms.
 
+- **P25 opcode 0x03 (Group Voice Channel Update – Explicit) is NOT the 0x00 grant layout
+  (#1242).** It is `svc opts | reserved | downlink chan | uplink chan | group` (SDRTrunk bits
+  16-79, OP25 `tk_p25.py`) with no source unit; GT reused `ParseGroupVoiceChannelGrant`, read
+  the channel from the reserved byte, and every explicit update on a UHF site resolved to the
+  band plan's BASE frequency (450.000 MHz) with a garbage TG/src — calls then timed out on an
+  empty carrier. Signature to recognise: `frequency_hz` == an IDEN_UP `base_hz` exactly. It had
+  no test at all; pinned by `opcodes_explicit_test.go` (literal bit positions via `tsbkBits`).
 - **P25 discovery: a PDU (DUID 0xC) on the control channel is Multi-Block
   Trunking, not noise — GT now decodes AMBT (`mbt.go`).** The operator's "only 1
   neighbor site, no WACN" report was this: their system broadcasts Network

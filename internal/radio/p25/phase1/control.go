@@ -1662,7 +1662,13 @@ func (c *ControlChannel) dispatchTSBK(t TSBK, nac uint16, metric int) {
 			}, nac)
 		}
 	case OpGroupVoiceChannelUpdateExpl:
-		c.publishGroupGrant(ParseGroupVoiceChannelUpdateExplicit(t.Payload), nac)
+		// The voice channel is the DOWNLINK channel; the uplink one is
+		// what the subscribers transmit on and is not followed.
+		u := ParseGroupVoiceChannelUpdateExplicit(t.Payload)
+		c.publishVoiceGrant(voiceGrant{
+			groupID: uint32(u.GroupAddress), channelID: u.DownlinkChannelID,
+			channelNumber: u.DownlinkChannelNumber, serviceOptions: u.ServiceOptions,
+		}, nac)
 	case OpUnitToUnitVoiceChannelGrant:
 		g := ParseUnitToUnitVoiceChannelGrant(t.Payload)
 		c.publishVoiceGrant(voiceGrant{
