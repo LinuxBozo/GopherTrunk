@@ -604,7 +604,7 @@ type ConvChannelConfig struct {
 	Label       string  `yaml:"label"`
 	FrequencyHz uint32  `yaml:"frequency_hz"`
 	Mode        string  `yaml:"mode"`         // "fm" | "nfm" | "am" (#1219)
-	SquelchDbFS float64 `yaml:"squelch_dbfs"` // default -50; ignored for mode am
+	SquelchDbFS float64 `yaml:"squelch_dbfs"` // in-channel power (±8 kHz); default -50; ignored for mode am
 	// SquelchCNDb is an AM channel's squelch: the carrier's
 	// carrier-to-noise ratio (dB, in a ~188 Hz bin) measured from the
 	// channel's own spectrum, so it does not move with gain the way a
@@ -630,6 +630,14 @@ type ConvChannelConfig struct {
 	// to make talkgroup_file roster rows durable across list edits.
 	// Issue #1105.
 	TalkgroupID uint32 `yaml:"talkgroup_id"`
+	// Gain is this channel's tuner gain on the scanner SDR, in the same
+	// form as sdr.devices[].gain: "auto", or tenths of a dB ("280" = 28.0
+	// dB; "28.0" also reads as 28.0 dB). Written before the channel is
+	// tuned, so a mixed scan list (VHF FM, air-band AM, UHF) can give each
+	// channel the gain it needs. Empty (default) runs the channel at the
+	// device's own gain — and if no channel sets one, the scanner never
+	// touches the gain. Issue #1239.
+	Gain string `yaml:"gain"`
 	// Tone is the optional CTCSS / DCS sub-audible squelch gate.
 	// Zero / "none" disables tone gating (default).
 	Tone ConvToneConfig `yaml:"tone"`

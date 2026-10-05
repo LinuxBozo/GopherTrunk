@@ -1991,6 +1991,27 @@ confirmation before any close-as-completed.
   difference. Gate (#764/#771): the reporter's own file through
   `GT_ACARS_AUDIO=<wav> go test ./cmd/gophertrunk -run TestACARSReplay -v`, then a live
   scanner run. Known limit: an ACARS burst also opens an ordinary AM "call".
+- **The conventional scanner's FM squelch measured the WHOLE SDR span, not the channel
+  (#1239).** `squelch_dbfs` was `PowerDbFS` of the scanner's full 2.4 MS/s IQ, so any other
+  carrier in the span (or the noise floor an auto-gain tuner holds near full scale) kept every
+  channel "open": untoned channels opened calls on empty air and toned channels were gated by
+  the CTCSS/DCS detector alone ("Tone only, not CSQ AND Tone"). FM channels now squelch on
+  `channelPowerMeter` (the tone front end's decimate + ±8 kHz filter, then RMS), which reads
+  the same level as before for an on-channel signal. It is still absolute dBFS, so a big gain
+  change still moves it; the gain-independent answer is a noise-quieting squelch (the
+  `dmrrx.carrierGate` discriminator-variance idea), not built. Per-channel `gain` landed in the
+  same PR for mixed-band scan lists.
+- **`CGO_ENABLED=0` does NOT mean a static binary on Linux (#1230).** The ALSA player dlopens
+  libasound through purego (`internal/voice/player/alsa_linux.go`), and purego links glibc's
+  loader + `libdl.so.2` even with cgo off — so the regular Linux release cannot start on Android
+  (Bionic has neither) and the old release-notes "single static binary" claim was false. The
+  Termux tarballs build with `-tags nolibasound` (audio routes to the direct-/dev/snd ioctl
+  backend) and `scripts/check-static.sh` fails the build if anything links dynamically; CI's
+  `termux-static` job runs it. A new purego/cgo import anywhere in `cmd/gophertrunk`'s graph will
+  trip it — gate it behind the same tag or keep it off Linux. `gophertrunk power`
+  (`internal/powersweep`) is the rtl_power-compatible sweep logger the same issue asked for; its
+  rtl_tcp path is pinned end to end by `TestPowerSweepOverRTLTCP` (fake rtl_tcp server), but
+  neither it nor the Termux build has run on a real phone yet.
 - **A detector threshold in radians-per-sample is a SAMPLE-RATE trap (#1184 CTCSS).** The
   conventional scanner's CTCSS gate never opened on air: its Goertzel threshold was calibrated
   on 48 kHz unit tests, but the scanner feeds 2.4 MS/s, where the same deviation is 50x smaller

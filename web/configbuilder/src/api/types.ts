@@ -256,6 +256,9 @@ export interface ConvChannelConfig {
   SquelchHysteresisDb: number;
   Priority: number;
   TalkgroupID: number;
+  // Per-channel tuner gain on the scanner SDR: "auto" or tenths of a dB;
+  // "" = the device's gain (#1239).
+  Gain?: string;
   Tone: ConvToneConfig;
   // Data decoders run on the channel's dwell: "mdc1200" | "fleetsync" (#1220),
   // "acars" on an AM channel (#1231).

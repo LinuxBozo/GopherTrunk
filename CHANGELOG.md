@@ -8,6 +8,39 @@ for tagged releases.
 ## [Unreleased]
 
 ### Added
+- **`gophertrunk power`: an rtl_power-style sweep logger that also works
+  over rtl_tcp (#1230).** It steps a local SDR, or a dongle behind an rtl_tcp
+  server, across `-f lower:upper:bin` and writes the averaged power spectrum
+  in rtl_power's CSV layout (`date, time, Hz low, Hz high, Hz step, samples,
+  dB…`), so rtl_power tooling reads it unchanged. It supports rtl_power's
+  `-i` / `-e` / `-1`. See docs/power-sweep.md.
+- **Android / Termux builds (#1230).** Releases now include static
+  `termux-arm64` and `termux-armv7` tarballs (`make termux-build`). The
+  regular Linux binary links glibc's `libdl` to load ALSA for live audio, so
+  it cannot start on Android. The Termux build uses `-tags nolibasound` and
+  CI checks that it stays statically linked. See docs/termux.md.
+- **Per-channel gain on the conventional scanner (#1239).**
+  `scanner.conventional[].gain` (`"auto"` or tenths of a dB, like
+  `sdr.devices[].gain`) is written to the scanner SDR before the channel is
+  tuned, so a mixed scan list (VHF FM, air-band AM, UHF) can give each channel
+  the gain it needs. A channel without one runs at the device's configured
+  gain. If no channel sets a gain, the scanner never touches it.
+
+### Fixed
+- **Conventional scanner: FM squelch now measures the channel, not the SDR's
+  whole span (#1239).** `squelch_dbfs` was compared against the RMS power of
+  the entire span (2.4 MHz on an RTL-SDR), so any other carrier in the span,
+  or the noise floor an auto-gain tuner holds near full scale, kept
+  "carrier present" true on every channel. Untoned channels then opened calls
+  on empty air, and toned channels were gated by the CTCSS/DCS detector alone
+  instead of carrier AND tone. The squelch now reads the channel's power
+  through the same ±8 kHz channel filter the tone detectors use. A real
+  on-channel signal reads the same level as before, so existing thresholds
+  keep their meaning; only signal outside the channel stops counting.
+
+## [v1.2.2] — 2026-10-03
+
+### Added
 - **`replay -key` and `replay -format disc`: check an encrypted recording
   offline through the daemon's own voice path, with the release binary
   (#1187).** `-key ALG:KEYID:HEXKEY` (repeatable; `rc4` for DMR Enhanced
