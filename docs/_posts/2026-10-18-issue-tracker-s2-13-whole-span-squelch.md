@@ -85,6 +85,12 @@ noticeable on VHF FM, where "even with very tight squelch settings (−10,
 −5, −1, etc.), random noise opens the gate when no solid carrier is
 present"; and digital conventional channels could not be scanned.
 
+The fourth — digital conventional channels such as the P25
+interoperability frequencies — and the first half of the first, letting
+the scanner own more than one SDR, are feature requests and stay open on
+the issue. The reporter offered to test anything in real-world scenarios,
+which is the offer that closes this part. This post is about the bug.
+
 The third item is the postmortem, and those thresholds are the clue. A
 `squelch_dbfs` of −1 is one decibel below a full-scale tone; nothing a
 real NFM channel delivers at sane gain sits there. If a gate still opened
@@ -129,14 +135,11 @@ past by raising gain — with the twist that here the measurement was not
 even of the thing being gated.
 
 <figure class="lab-figure">
-<svg viewBox="0 0 680 230" width="680" height="230" role="img" aria-label="A 2.4 MHz spectrum centred on an empty scanned channel at the −90 dBFS floor, with a −20 dBFS carrier 500 kHz away. The old whole-span RMS reads about −20 dBFS, above the −50 dBFS squelch line, so the gate opens; the new ±8 kHz in-channel meter reads about −90 dBFS and stays shut, while a −40 dBFS carrier 2 kHz off centre still opens it.">
+<svg viewBox="0 0 680 210" width="680" height="210" role="img" aria-label="A 2.4 MHz spectrum centred on an empty scanned channel at the −90 dBFS floor, with a −20 dBFS carrier 500 kHz away. The old whole-span RMS reads about −20 dBFS, above the −50 dBFS squelch line, so the gate opens; the new ±8 kHz in-channel meter reads about −90 dBFS and stays shut.">
   <text x="340" y="14" text-anchor="middle" fill="currentColor" font-size="10" font-weight="bold">one 2.4 MS/s chunk, channel at 0 kHz — what PowerDbFS saw vs what the channel carries</text>
   <line x1="40" y1="120" x2="640" y2="120" stroke="var(--fg-muted)"/>
   <g fill="var(--fg-muted)" font-size="8" text-anchor="middle">
-    <text x="40" y="134">−1.2 MHz</text>
-    <text x="340" y="134">0 (channel)</text>
-    <text x="465" y="134">+500 kHz</text>
-    <text x="640" y="134">+1.2 MHz</text>
+    <text x="40" y="134">−1.2 MHz</text><text x="340" y="134">0 (channel)</text><text x="465" y="134">+500 kHz</text><text x="640" y="134">+1.2 MHz</text>
   </g>
   <path d="M40 112 L100 110 L180 113 L260 110 L330 112 L350 112 L420 111 L455 111 L462 40 L468 40 L475 111 L560 113 L640 110" fill="none" stroke="currentColor"/>
   <text x="465" y="34" text-anchor="middle" fill="currentColor" font-size="8">−20 dBFS carrier, 500 kHz away</text>
@@ -145,21 +148,18 @@ even of the thing being gated.
   <path d="M40 150 L640 150" stroke="var(--fg-muted)"/>
   <line x1="40" y1="146" x2="40" y2="154" stroke="var(--fg-muted)"/>
   <line x1="640" y1="146" x2="640" y2="154" stroke="var(--fg-muted)"/>
-  <text x="340" y="166" text-anchor="middle" fill="var(--fg-muted)" font-size="8">old: PowerDbFS over the whole span ≈ −20 dBFS → ≥ −50 → powerOK = true on an EMPTY channel</text>
+  <text x="340" y="166" text-anchor="middle" fill="var(--fg-muted)" font-size="8">old: PowerDbFS over the whole span ≈ −20 dBFS → open on an EMPTY channel</text>
   <rect x="336" y="104" width="8" height="12" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
-  <path d="M336 186 L344 186" stroke="var(--accent)" stroke-width="1.5"/>
-  <line x1="336" y1="182" x2="336" y2="190" stroke="var(--accent)"/>
-  <line x1="344" y1="182" x2="344" y2="190" stroke="var(--accent)"/>
-  <text x="340" y="204" text-anchor="middle" fill="var(--accent)" font-size="8">new: channelPowerMeter, ±8 kHz ≈ −90 dBFS → < −50 → shut (−40 dBFS at +2 kHz still opens)</text>
-  <text x="340" y="222" text-anchor="middle" fill="currentColor" font-size="8">decimate ÷50 → 48 kHz · LowpassKaiser(63, 8000/48000, 8.6) · PowerDbFS — same dBFS scale for an on-channel signal</text>
+  <path d="M336 182 L344 182" stroke="var(--accent)" stroke-width="1.5"/>
+  <text x="340" y="198" text-anchor="middle" fill="var(--accent)" font-size="8">new: channelPowerMeter ±8 kHz ≈ −90 dBFS → shut · decimate ÷50 → 48 kHz · LowpassKaiser(63, 8000/48000, 8.6)</text>
 </svg>
-<figcaption>The old gate integrated 2.4 MHz; the strong neighbour half a megahertz away was the number compared to squelch_dbfs. The new meter integrates ±8 kHz around the channel and reads the floor.</figcaption>
+<figcaption>The old gate integrated 2.4 MHz, so the strong neighbour half a megahertz away was the number compared to squelch_dbfs. The new meter integrates ±8 kHz around the channel and reads the floor.</figcaption>
 </figure>
 
 ## The channel power meter
 
-The fix reuses geometry the scanner already owned. The CTCSS and DCS
-detectors had learned in
+The fix reuses geometry the scanner already owned. The tone detectors had
+learned in
 [Part 3]({{ '/blog/solution-postmortem/issue-tracker-s2-03-radians-per-sample/' | relative_url }})
 to decimate to a reference rate and channel-filter before measuring;
 `channelPowerMeter` is that front end with a power reading on the end:
@@ -185,15 +185,14 @@ func (m *channelPowerMeter) process(iq []complex64) float64 {
 
 Three properties were deliberate. **The scale is unchanged**: a carrier
 on the channel dominates either measurement, so `TestChannelPowerMeterCalibration`
-pins an on-channel −20 dBFS tone to read −21..−19 through the meter — an
-operator's existing thresholds keep their meaning, and only energy outside
-±8 kHz stops counting. **A chunk too short to yield a decimated sample
-holds the last reading** rather than returning −∞; the dwell's hangtime
-accounting runs on a stream of chunks, and a tiny chunk reading as silence
-would start a countdown (`TestChannelPowerMeterHoldsOnTinyChunk`). And the
-meter is **reset on every retune**, with the tone detectors, so the
-previous channel's filter history cannot leak into the next channel's
-first reading.
+pins an on-channel −20 dBFS tone to read −21..−19 through the meter —
+existing thresholds keep their meaning, and only energy outside ±8 kHz
+stops counting. **A chunk too short to yield a decimated sample holds the
+last reading** rather than returning −∞, because a tiny chunk reading as
+silence would start a hangtime countdown
+(`TestChannelPowerMeterHoldsOnTinyChunk`). And the meter is **reset on
+every retune**, with the tone detectors, so one channel's filter history
+cannot leak into the next channel's first reading.
 
 `squelchMeasure` picks the level function per channel: the AM channels
 keep their carrier-to-noise meter from #1219, FM channels get the power
@@ -269,14 +268,13 @@ band-pass question is not touched by this fix.
 
 What the fix does **not** do is make the threshold gain-independent. The
 meter reads in-channel power in dBFS, so a 10 dB gain change still moves
-every channel's reading by 10 dB and an operator who re-gains a device
-re-tunes their thresholds. The gain-independent answer is a
+every channel's reading by 10 dB. The gain-independent answer is a
 noise-quieting squelch — the FM discriminator's variance, the statistic
-the DMR receiver's `carrierGate` already uses to tell bursts from gaps at
-any gain — and it is not built on the conventional path. Until it is, the
+the DMR receiver's `carrierGate` uses to tell bursts from gaps at any
+gain — and it is not built on the conventional path. Until it is, the
 [cookbook recipe]({{ '/blog/tutorials/operator-cookbook-06-analog-fm-tone-out/' | relative_url }})'s
 advice stands: fix the gain first, then set `squelch_dbfs` against what
-the channel actually reads. The companion tutorial series,
+the channel reads. The companion tutorial series,
 [The Conventional Scanner]({{ '/blog/series/conventional-scanner/' | relative_url }}),
 walks the whole subsystem.
 
@@ -309,9 +307,9 @@ positions, and sums up what fourteen bugs had in common.
 **Why did my CTCSS channel open on noise even with squelch_dbfs at −1?**
 Before v1.2.3 the FM squelch compared `squelch_dbfs` against the RMS
 power of the SDR's entire span (2.4 MHz on an RTL-SDR), not the channel.
-Any carrier anywhere in that span, or an auto-gain noise floor near full
-scale, kept the power gate open, leaving the tone detector as the only
-gate. `channelPowerMeter` now measures the channel through a ±8 kHz filter.
+Any carrier in that span, or an auto-gain noise floor near full scale,
+kept the power gate open and left the tone detector as the only gate.
+`channelPowerMeter` now measures the channel through a ±8 kHz filter.
 
 **Do I need to change squelch_dbfs after the fix?**
 Probably lower it. An on-channel signal reads the same dBFS as before, but

@@ -29,15 +29,15 @@ on the same capture, that together cost the head of every PTT.*
 > `TestTETRADMOPipelineCaptureReplay` measured three things: `maybeGrant`
 > waited for `dmoGrantMinDNB` = 4 qualified DNBs after an exact CRC-decoded
 > solve had proved traffic on the first (0.17–0.28 s offline, 1.0 and 1.8 s
-> on two weak live PTTs); the voice chain saw no IQ before the grant, so
-> `voiceFanout` now keeps a measured 1 s pre-roll (`dmoVoicePrerollSeconds`:
-> 0 s → 320 CRC-valid bursts, 1 s → 361, 3 s → 318); and two "scramble seed
-> changed … changed back" flip-flops were **false exact solves** from the
-> soft-assisted reliable-check solver — 7 of 1411 DNBs solved to seeds that
-> decode nothing, because `tchSparseMinChecks`' "24 redundant checks"
-> overlap so heavily that 2^-24 was fiction. `DMSeedTracker.ObserveDNB` now
-> adopts a seed-changing solve only if the burst CRC-decodes at it, counted
-> in `solve_rejects`.
+> live); the voice chain saw no IQ before the grant, so `voiceFanout` now
+> keeps a measured 1 s pre-roll (`dmoVoicePrerollSeconds`: 0 s → 320
+> CRC-valid bursts, 1 s → 361, 3 s → 318); and two "scramble seed changed …
+> changed back" flip-flops were **false exact solves** from the
+> reliable-check solver — 7 of 1411 DNBs solved to seeds that decode
+> nothing, because `tchSparseMinChecks`' "24 redundant checks" overlap so
+> heavily that 2^-24 was fiction. `DMSeedTracker.ObserveDNB` now adopts a
+> seed-changing solve only if the burst CRC-decodes at it, counted in
+> `solve_rejects`.
 
 **Key takeaways**
 

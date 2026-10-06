@@ -113,8 +113,8 @@ chain's AMBE interleave table is a documented placeholder awaiting a
 real voice capture." YSF voice is not rendered at all.
 
 GopherTrunk carries both generations because operators still meet them:
-utility fleets on LTR and MPT 1327, county systems that never left
-SmartNet or EDACS, amateur repeaters on D-STAR and Fusion.
+utility fleets on LTR and MPT 1327, county systems still on SmartNet or
+EDACS, amateur repeaters on D-STAR and Fusion.
 
 ## Where a protocol becomes a name
 

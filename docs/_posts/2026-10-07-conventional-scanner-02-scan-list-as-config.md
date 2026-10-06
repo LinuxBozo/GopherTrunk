@@ -134,9 +134,8 @@ audio corners for every analog FM call is the `recordings` section —
 (default 3400), `fm_audio_highpass_hz` (default 300) and `fm_deemphasis`
 (`us`/`75us`, `eu`/`50us`, `off`). They are system-wide, so a scan list
 that mixes 25 kHz and 12.5 kHz channels runs one width for both. Part 7
-takes them one by one; the point here is where they live. Write `nfm` for
-documentation — it is reported back in the API's `mode` field — but do not
-expect it to change the audio.
+takes them one by one; the point here is where they live. Write `nfm` for documentation — it is reported in the API's `mode` field —
+but do not expect it to change the audio.
 
 ## The four timing keys
 

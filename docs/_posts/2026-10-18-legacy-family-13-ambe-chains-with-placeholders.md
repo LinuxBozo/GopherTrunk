@@ -17,10 +17,9 @@ the verification rung its protocol stands on.
 ended on a protocol with no voice chain at all. This part turns to the
 three that have one — NXDN, dPMR Mode 3 and D-STAR — and reads the one
 file each shares the shape of, `voice_ambe.go`, side by side. The point is
-not that the chains are wrong; nobody knows. The point is that the tree
-says precisely what it does not know, in a function marked `PLACEHOLDER`,
-and that the measurements which would settle it already exist in the DMR
-path next door.*
+not that the chains are wrong — nobody knows. The point is that the tree
+says what it does not know, in a function marked `PLACEHOLDER`, and that
+the measurements which would settle it already exist in the DMR path.*
 
 > **TL;DR:** `internal/radio/{nxdn,dpmr,dstar}/voice_ambe.go` are three
 > copies of one AMBE FEC layer: Golay(23,12) over C0 (with an
@@ -34,11 +33,11 @@ path next door.*
 > `dstarAMBEDeinterleave`, each a **direct sequential split** labelled
 > `PLACEHOLDER`, with an encoder inverse kept in lock-step so
 > `TestVCHFrameRoundTrip` / `TestTCHFrameRoundTrip` / `TestDVVoiceBitsRoundTrip`
-> pass by construction. `runNXDNVoiceChain`, `runDPMRVoiceChain` and
-> `runDStarVoiceChain` feed the recorder through `WriteRawFrameWithErrors`,
-> rendering `"nxdn"`/`"dpmr"` via `ambe2-dmr` (3600×2450) and `"dstar"`
-> via `ambe2` (3600×2400). Nothing has decoded real air; the first capture
-> pins the table, the frame geometry and the codebook, in that order.
+> pass by construction. The composer chains feed the recorder
+> through `WriteRawFrameWithErrors`, rendering `"nxdn"`/`"dpmr"` via
+> `ambe2-dmr` (3600×2450) and `"dstar"` via `ambe2` (3600×2400). Nothing
+> has decoded real air; the first capture pins the table, the geometry
+> and the codebook, in that order.
 
 **Key takeaways**
 
@@ -97,13 +96,11 @@ return out, clampErrs(c0errs) + clampErrs(c1errs), nil
 ```
 
 The keystream is mbelib's `mbe_demodulateAmbe3600x2450Data` sequence —
-the D-STAR copy calls it `dstarC1Keystream` and cites the 2400 variant,
-noting it is "identical to the 3600×2450 one". The Golay primitives are
-the shared `framing.GolayDecode23_12`/`GolayEncode23_12`; the encoder
-side computes the C0 overall-parity cell as `bits.OnesCount32(c0cw) & 1`.
-An uncorrectable sub-vector's −1 is clamped to 0 so the returned count
-stays a non-negative sum — that number is what the composer later hands
-the recorder.
+the D-STAR copy, `dstarC1Keystream`, cites the 2400 variant and notes it
+is "identical to the 3600×2450 one". The Golay primitives are the shared
+`framing.GolayDecode23_12`/`GolayEncode23_12`. An uncorrectable
+sub-vector's −1 is clamped to 0 so the returned count stays a
+non-negative sum — the number the composer later hands the recorder.
 
 All of that is a property of the codec, not the radio protocol. The file
 comments say it directly: the FEC "is a property of the AMBE+2 codec,
@@ -146,11 +143,10 @@ The doc comment above it is the honest part of the design: "PLACEHOLDER:
 a direct sequential split. Replace with the real dPMR TCH interleave
 schedule (TS 102 658 §6) once a capture is available to verify against
 (the encoder inverse below must be updated in lock-step). Isolated here
-so that swap is a one-function change." NXDN's names its own unknown
-schedule the same way; D-STAR's names DSD's `dW`/`dX` schedule as the
-target. Each file opens with the same warning block — "UNVERIFIED ON AIR
-… the first thing a capture confirms is this table" — and cites CLAUDE.md's
-TETRA-CRC lesson "for why the table is not guessed".
+so that swap is a one-function change." D-STAR's names DSD's `dW`/`dX`
+schedule as the target. Each file opens with the same warning —
+"UNVERIFIED ON AIR … the first thing a capture confirms is this table" —
+and cites CLAUDE.md's TETRA-CRC lesson "for why the table is not guessed".
 
 Why not guess? Because a guessed table that round-trips is undetectable
 from inside the tree. `TestVCHFrameRoundTrip`, `TestTCHFrameRoundTrip` and
@@ -163,12 +159,12 @@ to repair them, with a comment that gives the dependency away: "C0
 occupies on-air positions 0..23, C1 24..46 (sequential placeholder
 layout)". When the real table lands, those positions move with it. This
 is the [self-consistent trap]({{ '/blog/solution-postmortem/from-the-issue-tracker-20-self-consistent-trap/' | relative_url }})
-made explicit on purpose: the sequential split is not a hypothesis about
-the air, it is scaffolding that lets the Golay, keystream and assembly be
-tested now, labelled so nobody mistakes it for a claim.
+made explicit on purpose: the split is not a hypothesis about the air but
+scaffolding that lets the Golay, keystream and assembly be tested now,
+labelled so nobody mistakes it for a claim.
 
 <figure class="lab-figure">
-<svg viewBox="0 0 680 200" width="680" height="200" role="img" aria-label="Two rows of 72 on-air bits. The top row, labelled placeholder as shipped for NXDN, dPMR and D-STAR, is divided into four contiguous blocks: C0 bits 0 to 23, C1 bits 24 to 46, C2 bits 47 to 57, C3 bits 58 to 71. The bottom row, labelled DMR rW rX rY rZ from szechyjs dsd, shows the same 72 bits as 36 dibits whose high and low bits scatter into C0 through C3 with crossing arrows. A caption notes that only the top row is a placeholder and that both feed the same Golay, keystream and 49-bit assembly.">
+<svg viewBox="0 0 680 200" width="680" height="200" role="img" aria-label="Two rows of 72 on-air bits: the shipped placeholder, four contiguous blocks C0 bits 0 to 23, C1 24 to 46, C2 47 to 57, C3 58 to 71; and DMR's real rW rX rY rZ schedule, 36 dibits scattered across C0 to C3. Both feed the same Golay, keystream and 49-bit assembly.">
   <text x="340" y="14" text-anchor="middle" fill="currentColor" font-size="10" font-weight="bold">72 on-air bits → C0 (24) · C1 (23) · C2 (11) · C3 (14): the one protocol-specific step</text>
   <text x="8" y="54" fill="var(--fg-muted)" font-size="8">placeholder</text>
   <text x="8" y="65" fill="var(--fg-muted)" font-size="8">(nxdn/dpmr/dstar)</text>
@@ -185,13 +181,10 @@ tested now, labelled so nobody mistakes it for a claim.
   <text x="8" y="135" fill="var(--fg-muted)" font-size="8">rW/rX/rY/rZ</text>
   <rect x="100" y="110" width="570" height="26" fill="none" stroke="currentColor"/>
   <text x="385" y="127" text-anchor="middle" fill="currentColor" font-size="8">36 dibits: high bit → fr[rW[i]][rX[i]], low bit → fr[rY[i]][rZ[i]] — scattered across C0..C3 (szechyjs/dsd dmr_const.h)</text>
-  <path d="M130 136 L300 150" stroke="var(--fg-muted)" stroke-dasharray="2 2"/>
-  <path d="M400 136 L160 150" stroke="var(--fg-muted)" stroke-dasharray="2 2"/>
-  <path d="M560 136 L480 150" stroke="var(--fg-muted)" stroke-dasharray="2 2"/>
-  <text x="385" y="168" text-anchor="middle" fill="currentColor" font-size="8">both rows → Golay(23,12) on C0 and C1 → C0-seeded keystream on C1 → 12+12+11+14 = 49-bit ambe_d → vocoder</text>
-  <text x="385" y="188" text-anchor="middle" fill="var(--fg-muted)" font-size="8">capture-verified: the DMR row (#644 clip vs mbelib). Unverified: the three placeholders above it.</text>
+  <text x="385" y="164" text-anchor="middle" fill="currentColor" font-size="8">both rows → Golay(23,12) on C0, C1 → C0-seeded keystream on C1 → 12+12+11+14 = 49-bit ambe_d</text>
+  <text x="385" y="186" text-anchor="middle" fill="var(--fg-muted)" font-size="8">capture-verified: the DMR row (#644 clip vs mbelib) · unverified: the placeholder row</text>
 </svg>
-<figcaption>Everything below the dashed arrows is shared and already proven on DMR air. Only the mapping from 72 on-air bits into the four sub-vectors is protocol-specific, and in three of four packages it is a labelled stand-in.</figcaption>
+<figcaption>Everything after the split is shared and already proven on DMR air. Only the mapping from 72 on-air bits into the four sub-vectors is protocol-specific, and in three of four packages it is a labelled stand-in.</figcaption>
 </figure>
 
 ## Three frame geometries
@@ -206,8 +199,8 @@ traffic frame as 288 bits = `VCHVoiceFramesPerFrame` (4) × 72;
 and collects `postSyncDibitsTraffic` = `LICHWireDibits` + `SACCHDibits` +
 `InfoFieldDibits` (8 + 32 + 144 = 184) per match, decodes the LICH, and
 routes only frames with `ParityOK` and `RFCh == RFChTraffic`; the SACCH
-is skipped. The CC path "is hardwired to CAC and gates on
-`RFCh==RFChControl`", so voice needs this separate adapter.
+is skipped. The CC path "is hardwired to CAC", so voice needs its own
+adapter.
 
 **dPMR.** `dpmr/voice.go` fixes `CCHDibits` 24, `TCHSubframeDibits` 36,
 `TCHFramesPerBurst` 4 and `TCHFieldDibits` 144, so `postSyncDibitsTraffic`
@@ -249,16 +242,15 @@ rx := nxdnrx.New(nxdnrx.Options{SampleRateHz: symbolHz, DeviationHz: 1800.0,
     DibitSink: func(d []uint8, base int) { tc.Process(d, base) }})
 ```
 
-The front-end constants differ per protocol and all have a reason in a
+The front-end constants differ per protocol, each with a reason in a
 comment: `nxdnChannelSelectHz` 6250 (half the 12.5 kHz NXDN96 spacing),
 `dpmrChannelSelectHz` and `dstarChannelSelectHz` 3125 (half of 6.25 kHz),
-`dpmrVoiceDeviationHz` 900 (half of P25/DMR, "same value the CC pipeline
-uses"), all decimating to a 48 kHz intermediate rate. Every chain starts
-by logging `composer: … voice chain started (… decode is unverified on
-air — experimental)` and ends by logging its `voice_frames` count. The
-boundary tracker is built with grant talkgroup 0 — no talkgroup gating,
-because none of the three decoders surfaces a per-frame talkgroup yet —
-and `bt.onVoice(0)` keeps hangtime alive per decoded frame.
+`dpmrVoiceDeviationHz` 900 (half of P25/DMR), all decimating to 48 kHz.
+Every chain logs `composer: … voice chain started (… decode is unverified
+on air — experimental)` and ends by logging its `voice_frames` count. The
+boundary tracker is built with grant talkgroup 0 — none of the three
+decoders surfaces a per-frame talkgroup yet — and `bt.onVoice(0)` keeps
+hangtime alive per decoded frame.
 
 `errAwareRawSink` is the detail that will matter on the first capture.
 `Recorder.WriteRawFrameWithErrors` takes the per-frame Golay corrected-bit
@@ -266,10 +258,9 @@ count the FEC layer returns and drives the vocoder's error-rate adaptive
 smoothing, as the DMR chain does. And the recorder's
 `DefaultVocoderForProtocol` picks the codebook: `"nxdn"` and `"dpmr"` map
 to `"ambe2-dmr"` (`ambe2.NewDMR`, the 3600×2450 `unpackParams2450`
-tables), `"dstar"` to `"ambe2"` (`ambe2.New`, 3600×2400). The map's own
-comments carry the caveat — "the 2450-vs-2400 codebook choice is one of
-the things a real … voice capture confirms" — and the v1.1.2 changelog
-records that dPMR's entry once pointed at 2400 and was corrected.
+tables), `"dstar"` to `"ambe2"` (`ambe2.New`, 3600×2400). The map's comments carry the caveat — "the 2450-vs-2400 codebook choice
+is one of the things a real … voice capture confirms" — and v1.1.2's
+changelog records that dPMR's entry once pointed at 2400.
 
 ## What the first capture pins, and the DMR instruments that transfer
 
@@ -277,9 +268,8 @@ records that dPMR's entry once pointed at 2400 and was corrected.
 48 kHz, clear voice)" and, for NXDN, a voice capture beside the control
 channel one, each with a `metadata.json`, and summarises the three confirmations in
 order — "its AMBE interleave table … plus the frame geometry and codebook
-choice". The DMR path shows exactly what those
-confirmations look like as numbers, and none of the instruments is
-DMR-specific.
+choice". The DMR path shows what those confirmations look like as numbers, and
+none of the instruments is DMR-specific.
 
 **The Golay histogram.** `VCHFrame.Errors`, `TCHFrame.Errors` and
 `DVFrame.Errors` already carry the corrected-bit counts. On the #1187
@@ -309,8 +299,8 @@ which refuted a wrong note and found the real bug in silence frames
 automatically; D-STAR's 2400 base path has no silence-frame indicator by
 design ("Silence is not a separate AMBE+2 indicator", per `params.go`'s
 tone branch), and only a capture can say whether a real D-STAR stream
-needs one. The `.raw` sidecar the recorder writes (`write_raw`,
-`recordings.mbe_files`) is the input that diff needs.
+needs one. The `.raw` sidecar the recorder writes (`recordings.write_raw`) is the
+input that diff needs.
 
 ## The #764/#771 rule applied
 
@@ -338,9 +328,8 @@ end-to-end through the composer but not yet verified on air".
   comments say they must move with the decoder.
 - **Error counts clamped, never dropped.** `clampErrs`/`clampGolayErrs`
   keep an uncorrectable sub-vector from poisoning the sum the smoother sees.
-- **Warnings at the top of the file, not in a doc.** Each `voice_ambe.go`
-  opens with the "UNVERIFIED ON AIR" block so the caveat travels with the
-  code.
+- **Warnings at the top of the file.** Each `voice_ambe.go` opens with
+  the "UNVERIFIED ON AIR" block so the caveat travels with the code.
 
 ## Where this goes next
 

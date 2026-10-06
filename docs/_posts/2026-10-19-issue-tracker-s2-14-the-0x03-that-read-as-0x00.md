@@ -1,6 +1,6 @@
 ---
 title: "From the Issue Tracker, Season 2, Part 14: The 0x03 That Read as 0x00 — An Explicit Channel Update Parsed With the Grant Layout"
-description: "Why every P25 voice grant on a UHF site resolved to exactly 450.000 MHz and timed out at 7 s: TSBK opcode 0x03 (Group Voice Channel Update – Explicit) was decoded with opcode 0x00's layout, reading the channel from a reserved byte. The real layout, the literal-bit-position pin, the band-plan signature that gives this class away — and what fourteen Season 2 bugs had in common."
+description: "Why every P25 voice grant on a UHF site resolved to exactly 450.000 MHz and timed out at 7 s: TSBK opcode 0x03 (Group Voice Channel Update – Explicit) was decoded with opcode 0x00's layout, reading the channel from a reserved byte. The real layout, the literal-bit-position pin, the band-plan signature, and what fourteen Season 2 bugs had in common."
 category: solution-postmortem
 keywords: p25 opcode 0x03, grp_v_ch_grant_updt_exp, p25 grant frequency base_hz, p25 explicit channel update layout, tsbk payload layout sdrtrunk, p25 calls timeout 7s, p25 band plan channel number, literal bit position test, p25 phase 1 control channel, gophertrunk from the issue tracker s2
 tags: [from-the-issue-tracker-s2, p25, tsbk, band-plan, parsing, postmortem]
@@ -17,8 +17,8 @@ replaced a squelch that integrated the whole 2.4 MHz span with one that
 measures the channel. This closing part is a P25 bug whose reporter
 supplied the clue that solved it
 ([#1242](https://github.com/MattCheramie/GopherTrunk/issues/1242)): every
-grant on their site landed on exactly the band plan's base frequency. It
-ends with what the season's fourteen bugs had in common.*
+grant on their site landed on the band plan's base frequency. It ends
+with what the season's fourteen bugs had in common.*
 
 > **TL;DR:** A P25 Phase 1 site (WACN C0907 / SYS 6F5 / NAC 1780, control
 > channel 450.2875 MHz, band plan base 450 000 000 Hz, spacing 6250 Hz)
@@ -85,6 +85,13 @@ spacing 6250, bandwidth 12 500. Observed: the control channel decodes fine
 `reason=timeout, duration=7001ms`; a tap on 450.000 MHz reads −63 dBFS,
 the noise floor. Expected: `base + N × 6250`.
 
+Two of those numbers deserve a second look. 7001 ms is not a hangtime an
+operator set; it is a timeout *shape*, the same duration on every call,
+which says the calls never carried voice at all. And −63 dBFS at
+450.000 MHz is the reporter measuring the frequency GopherTrunk chose and
+finding nothing there — ruling out the voice tuner, the DDC and the
+vocoder before anyone else looked.
+
 Nothing in that list was wrong, and the reply said so: the clue was that
 every grant equalled the band plan's *base* frequency. A system does not
 put every call on channel 0; a decoder that reads a channel field from
@@ -98,8 +105,8 @@ was healthy, which is why the reporter could see the band plan at all.
 
 The site announces its calls with **Group Voice Channel Update –
 Explicit**, TSBK opcode 0x03 (`GRP_V_CH_GRANT_UPDT_EXP` in TIA-102.AABC
-terms), rather than, or in addition to, the plain grant. GopherTrunk's
-dispatcher handled 0x03 by calling the opcode 0x00 parser:
+terms). GopherTrunk's dispatcher handled it by calling the opcode 0x00
+parser:
 
 ```go
 // internal/radio/p25/phase1/control.go — before b1b4a48
@@ -128,7 +135,7 @@ joined to the real group — garbage both. The message was decoded
 talkgroup from a nonexistent radio.
 
 <figure class="lab-figure">
-<svg viewBox="0 0 680 230" width="680" height="230" role="img" aria-label="Two eight-byte TSBK payload strips. Opcode 0x00: service options, channel in bytes 1 to 2, group in 3 to 4, source in 5 to 7. Opcode 0x03: service options, a reserved byte, downlink channel in bytes 2 to 3, uplink in 4 to 5, group in 6 to 7. A bracket shows the 0x00 parser's channel read covering the reserved byte and the downlink's high byte, resolving to channel 0 of ID 0, the band plan's base frequency, with the group and source reads straddling the wrong fields.">
+<svg viewBox="0 0 680 200" width="680" height="200" role="img" aria-label="Two eight-byte TSBK payload strips. Opcode 0x00: service options, channel in bytes 1 to 2, group in 3 to 4, source in 5 to 7. Opcode 0x03: service options, a reserved byte, downlink channel in bytes 2 to 3, uplink in 4 to 5, group in 6 to 7. A bracket shows the 0x00 parser's channel read covering the reserved byte and the downlink's high byte, which resolves to channel 0 of ID 0, the band plan's base frequency.">
   <text x="340" y="14" text-anchor="middle" fill="currentColor" font-size="10" font-weight="bold">TSBK payload bytes 0..7 (bits 16–79): what the 0x00 read made of a 0x03 message</text>
   <text x="20" y="52" fill="var(--fg-muted)" font-size="9">0x00</text>
   <g font-size="8" text-anchor="middle">
@@ -137,23 +144,21 @@ talkgroup from a nonexistent radio.
     <rect x="270" y="38" width="140" height="22" fill="none" stroke="var(--fg-muted)"/><text x="340" y="52" fill="var(--fg-muted)">group</text>
     <rect x="410" y="38" width="210" height="22" fill="none" stroke="var(--fg-muted)"/><text x="515" y="52" fill="var(--fg-muted)">source unit (24)</text>
   </g>
-  <text x="20" y="112" fill="var(--accent)" font-size="9">0x03</text>
-  <g font-size="8" text-anchor="middle">
-    <rect x="60" y="98" width="70" height="22" fill="none" stroke="var(--accent)" stroke-width="1.5"/><text x="95" y="112" fill="var(--accent)">svc</text>
-    <rect x="130" y="98" width="70" height="22" fill="none" stroke="var(--accent)" stroke-width="1.5"/><text x="165" y="112" fill="var(--accent)">reserved</text>
-    <rect x="200" y="98" width="140" height="22" fill="none" stroke="var(--accent)" stroke-width="1.5"/><text x="270" y="112" fill="var(--accent)">downlink channel</text>
-    <rect x="340" y="98" width="140" height="22" fill="none" stroke="var(--accent)" stroke-width="1.5"/><text x="410" y="112" fill="var(--accent)">uplink channel</text>
-    <rect x="480" y="98" width="140" height="22" fill="none" stroke="var(--accent)" stroke-width="1.5"/><text x="550" y="112" fill="var(--accent)">group</text>
-  </g>
   <g font-size="8" text-anchor="middle" fill="var(--fg-muted)">
-    <text x="95" y="90">byte 0</text><text x="165" y="90">1</text><text x="235" y="90">2</text><text x="305" y="90">3</text><text x="375" y="90">4</text><text x="445" y="90">5</text><text x="515" y="90">6</text><text x="585" y="90">7</text>
+    <text x="95" y="80">byte 0</text><text x="165" y="80">1</text><text x="235" y="80">2</text><text x="305" y="80">3</text><text x="375" y="80">4</text><text x="445" y="80">5</text><text x="515" y="80">6</text><text x="585" y="80">7</text>
   </g>
-  <path d="M130 70 L130 76 L270 76 L270 70" fill="none" stroke="currentColor"/>
-  <text x="200" y="134" text-anchor="middle" fill="currentColor" font-size="8">0x00's channel read = 0x00 ‖ dl high byte → id 0, num 0 → BaseHz</text>
-  <path d="M130 140 L130 146 L270 146 L270 140" fill="none" stroke="currentColor"/>
-  <text x="340" y="162" text-anchor="middle" fill="currentColor" font-size="8">group read = dl low ‖ ul high (garbage)   ·   source read = ul low ‖ group (garbage)</text>
-  <text x="340" y="190" text-anchor="middle" fill="var(--accent)" font-size="8">fix: ParseGroupVoiceChannelUpdateExplicit reads dl = p[2:4], ul = p[4:6], group = p[6:8]; the grant follows dl</text>
-  <text x="340" y="212" text-anchor="middle" fill="var(--fg-muted)" font-size="8">reporter's site: dl channel 0-80 → 450 000 000 + 80 × 6250 = 450 500 000 Hz; old read → 450 000 000 Hz (−63 dBFS, empty)</text>
+  <text x="20" y="108" fill="var(--accent)" font-size="9">0x03</text>
+  <g font-size="8" text-anchor="middle">
+    <rect x="60" y="94" width="70" height="22" fill="none" stroke="var(--accent)" stroke-width="1.5"/><text x="95" y="108" fill="var(--accent)">svc</text>
+    <rect x="130" y="94" width="70" height="22" fill="none" stroke="var(--accent)" stroke-width="1.5"/><text x="165" y="108" fill="var(--accent)">reserved</text>
+    <rect x="200" y="94" width="140" height="22" fill="none" stroke="var(--accent)" stroke-width="1.5"/><text x="270" y="108" fill="var(--accent)">downlink channel</text>
+    <rect x="340" y="94" width="140" height="22" fill="none" stroke="var(--accent)" stroke-width="1.5"/><text x="410" y="108" fill="var(--accent)">uplink channel</text>
+    <rect x="480" y="94" width="140" height="22" fill="none" stroke="var(--accent)" stroke-width="1.5"/><text x="550" y="108" fill="var(--accent)">group</text>
+  </g>
+  <path d="M130 124 L130 130 L270 130 L270 124" fill="none" stroke="currentColor"/>
+  <text x="200" y="144" text-anchor="middle" fill="currentColor" font-size="8">0x00's channel read = 0x00 ‖ dl high byte → id 0, num 0 → BaseHz</text>
+  <text x="340" y="166" text-anchor="middle" fill="var(--accent)" font-size="8">fix: dl = p[2:4], ul = p[4:6], group = p[6:8]; the grant follows dl</text>
+  <text x="340" y="186" text-anchor="middle" fill="var(--fg-muted)" font-size="8">reporter's site: dl 0-80 → 450 000 000 + 80 × 6250 = 450 500 000 Hz; old read → 450 000 000 Hz (−63 dBFS, empty)</text>
 </svg>
 <figcaption>Same first byte, different everything else. The 0x00 parser's channel read lands on the reserved byte, which is why every grant resolved to the base frequency.</figcaption>
 </figure>
@@ -178,9 +183,9 @@ func ParseGroupVoiceChannelUpdateExplicit(p [8]byte) GroupVoiceChannelUpdateExpl
 
 `dispatchTSBK` now publishes a `voiceGrant` with the downlink channel,
 the group and the service options — and no source ID, because the message
-has none. The layout is cross-checked two ways: SDRTrunk's
-`GroupVoiceChannelGrantUpdateExplicit` bit indexes and OP25's `tk_p25.py`
-handling of opcode 0x03. That cross-check is the whole discipline of
+has none. The layout is cross-checked against SDRTrunk's
+`GroupVoiceChannelGrantUpdateExplicit` bit indexes and OP25's `tk_p25.py`,
+the discipline of
 [From Spec to Shipping Part 3]({{ '/blog/deep-dives/from-spec-to-shipping-03-literal-vectors/' | relative_url }}):
 a parser is pinned to what independent decoders read off the air, never
 to its own inverse.
@@ -219,9 +224,8 @@ explicit update naming downlink channel 0-80 and uplink 0-880 for group
 channel at NAC `0x780` and 450.2875 MHz via `buildLockedStreamWithTSBK`,
 and drains the bus. It expects exactly one grant at
 `450_000_000 + 80 × 6_250 = 450_500_000` Hz, group `0x123`, source 0,
-and `Encrypted` set from the service options; the uplink's 0-880 "must
-not win". On the old code the same test produces the reporter's exact
-`frequency_hz=450000000`. Band-plan resolution itself —
+`Encrypted` set; the uplink's 0-880 "must not win". On the old code the
+same test produces the reporter's exact `frequency_hz=450000000`. Band-plan resolution itself —
 `BaseHz + channelNumber × SpacingHz`, and the 5 s `pendingGrants` queue
 for a grant that beats its IDEN_UP — is unchanged and already covered in
 [P25 End to End Part 5]({{ '/blog/deep-dives/p25-end-to-end-05-channels-band-plans/' | relative_url }}).
@@ -231,10 +235,10 @@ for a grant that beats its IDEN_UP — is unchanged and already covered in
 The general lesson is a one-line field check. **A grant whose
 `frequency_hz` equals an IDEN_UP's `base_hz` exactly is a field read
 from zeros.** Channel 0 exists in every band plan, but a *stream* of
-grants all resolving there — with talkgroups that match nothing and calls
-that only end by timeout — is a parser landing on a reserved or zero
-byte. The `p25: identifier update` log line prints `base_hz` beside the
-channel ID, so the comparison is one grep of `debug.log`.
+grants resolving there, with talkgroups that match nothing and calls that
+only end by timeout, is a parser landing on a zero byte. The
+`p25: identifier update` log line prints `base_hz`, so the comparison is
+one grep of `debug.log`.
 
 Status, honestly: the fix is merged and sits under `[Unreleased]` in the
 changelog at the time of writing. The two tests fail on the old code and
@@ -250,17 +254,16 @@ and only the reporter's air closes it.
 
 ### How the layouts shaped the Go code
 
-- **One type per opcode.** `GroupVoiceChannelUpdateExplicit` is its own
-  struct with `Downlink*` and `Uplink*` fields; nothing is reused from
+- **One type per opcode.** `GroupVoiceChannelUpdateExplicit` has its own
+  `Downlink*` and `Uplink*` fields; nothing is reused from
   `GroupVoiceChannelGrant`.
 - **`voiceGrant` carries what the message carries.** The dispatch sets
   `groupID`, `channelID`, `channelNumber`, `serviceOptions` and leaves
-  `sourceID` zero rather than inventing one.
+  `sourceID` zero.
 - **Literal-position tests are the pattern.** New TSBK parsers follow the
-  `tsbkBits` convention established for the unit-signalling opcodes.
+  `tsbkBits` convention of the unit-signalling opcodes.
 - **The parser comment names the bug.** `ParseGroupVoiceChannelUpdateExplicit`'s
-  doc comment records that it used to reuse the grant parser and why that
-  resolved to the base frequency.
+  doc comment records the old reuse and why it resolved to the base.
 
 ## What Season 2 taught
 
@@ -275,9 +278,9 @@ and the DCS codeword
 ([Part 4]({{ '/blog/solution-postmortem/issue-tracker-s2-04-invented-dcs-codeword/' | relative_url }}))
 were invented and round-tripped; the TETRA MAC seams
 ([Part 11]({{ '/blog/solution-postmortem/issue-tracker-s2-11-phantom-neighbours/' | relative_url }}))
-had an encoder that shared the wrong layout; and this part's parser had
-no test at all, which is the trap's limiting case. The escape was the
-same each time: a literal vector from an independent decoder, or real air.
+had an encoder sharing the wrong layout; this part's parser had no test
+at all. The escape was the same each time: a literal vector from an
+independent decoder, or real air.
 
 **Units and rates are a trap of their own.** A threshold in radians per
 sample calibrated at 48 kHz and fed 2.4 MS/s
@@ -288,23 +291,22 @@ and a squelch integrating 2.4 MHz instead of 16 kHz
 ([Part 13]({{ '/blog/solution-postmortem/issue-tracker-s2-13-whole-span-squelch/' | relative_url }}))
 all passed every unit test written at the rate the author had in mind.
 
-**Gate on the right population, measured.** Zero-IF clipping products at
+**Measure what the code actually sees.** Zero-IF clipping products at
 4δ ([Part 2]({{ '/blog/solution-postmortem/issue-tracker-s2-02-tone-at-four-delta/' | relative_url }})),
 the AACH classification trusted only below two errors (Part 11), the
 sixteen-thousand-codeword search behind "overruns at 200 kS/s"
-([Part 9]({{ '/blog/solution-postmortem/issue-tracker-s2-09-sixteen-thousand-codewords/' | relative_url }}))
-— each fix began with a measurement of what the code was actually seeing.
+([Part 9]({{ '/blog/solution-postmortem/issue-tracker-s2-09-sixteen-thousand-codewords/' | relative_url }})).
 
 **Build an instrument before a theory.** The GF(2) seed solve
 ([Part 5]({{ '/blog/solution-postmortem/issue-tracker-s2-05-seed-is-the-source-address/' | relative_url }}))
-replaced four wrong colour codes; the `solve_rejects` counter
+replaced four wrong colour codes; `solve_rejects`
 ([Part 6]({{ '/blog/solution-postmortem/issue-tracker-s2-06-false-exact-solves/' | relative_url }}))
 caught false exact solves; `tl_sdu_hex` (Part 11) root-caused a splice
 from a log alone; `requested_center_hz`
 ([Part 7]({{ '/blog/solution-postmortem/issue-tracker-s2-07-capture-at-the-wrong-centre/' | relative_url }}))
-would have named a NaN that fell back silently — the
+names a centre that once fell back silently — the
 [census-everything]({{ '/blog/solution-postmortem/from-the-issue-tracker-21-census-everything/' | relative_url }})
-rule applied to new ground.
+rule on new ground.
 
 **The pipeline includes the build and the seams between components.**
 A re-key fenced by call ID
@@ -348,8 +350,8 @@ source unit, so grants from it have no radio ID.
 
 **Why follow the downlink channel and not the uplink?**
 The downlink is what the repeater transmits and what a scanner hears; the
-uplink is the subscribers' side, `tx_offset_hz` away (+5 MHz in the
-regression's band plan). `TestExplicitUpdateGrantResolvesDownlinkChannel`
+uplink is the subscribers' transmit side, `tx_offset_hz` away (+5 MHz in
+the regression's band plan). `TestExplicitUpdateGrantResolvesDownlinkChannel`
 pins that uplink channel 0-880 must not win over downlink 0-80.
 
 **How do I recognise this class of bug on another opcode?**

@@ -15,10 +15,10 @@ postmortems on GopherTrunk bugs that fought back.
 [Part 10]({{ '/blog/solution-postmortem/issue-tracker-s2-10-rekey-dropped-both-overs/' | relative_url }})
 followed a DMR re-key through the composer's drain coordination to the
 call-ID fence that keeps both overs. This part moves to TETRA's control
-plane and a table that filled with sites nobody could find on the dial —
-the "Neighbor sites" report on an operator's rig — and the four rounds of
-MAC-layer seams, each deterministic, each repeating bit-identically past a
-confirm-twice gate, that put them there.*
+plane and a "Neighbor sites" table that filled with sites nobody could
+find on the dial — and the four rounds of MAC-layer seams, each
+deterministic, each repeating bit-identically past a confirm-twice gate,
+that put them there.*
 
 > **TL;DR:** TETRA's D-NWRK-BROADCAST (`ParseDNwrkBroadcast`,
 > `internal/radio/tetra/mle_parse.go`) advertises the serving cell's
@@ -51,8 +51,8 @@ confirm-twice gate, that put them there.*
   nearest RM(30,14) codeword for any input; its distance is the confidence,
   and a classification at distance 4–6 is a coin flip.
 - **Integrity evidence must sit on the chain's own grid.** Real slots are
-  255 dibits apart; the correlator's spurious off-grid hits prove nothing,
-  and a check that counted them aborted every chain on a timeshare carrier.
+  255 dibits apart; the correlator's off-grid hits prove nothing, and a
+  check that counted them aborted every chain on a timeshare carrier.
 
 ## Cheat sheet
 
@@ -65,7 +65,6 @@ confirm-twice gate, that put them there.*
 | Whole-list distrust | one implausible cell drops the broadcast, logs `tl_sdu_hex` | `control.go` (`learnNeighbourCells`, `plausibleNeighbourCell`) |
 | Expiry | 30 min without re-advertisement, aged only across accepted broadcasts | `neighbourExpiry`, `TestLearnNeighbourCellsExpiresUnadvertisedCells` |
 | Field pin | literal TL-SDU from the 4 Sep log, 132 bits of residue | `mle_parse_test.go` (`TestParseDNwrkBroadcastRejectsSplicedFieldCapture`) |
-| On-air harness | one diversity branch → topology neighbours | `cmd/gophertrunk/tetra_neighbour_replay_test.go` (`TestTETRANeighbourReportReplay`) |
 
 ## In this post
 
@@ -79,10 +78,9 @@ confirm-twice gate, that put them there.*
 
 A TETRA base station advertises its neighbours in the MLE
 D-NWRK-BROADCAST (EN 300 392-2 §18.4.1.4.1): re-selection parameters,
-then up to seven neighbour-cell elements, each with a 12-bit main carrier
-and a P-bit-gated tail of optionals — band extension, MCC, MNC, LA, and
-the §18.5.17 status fields. It is the TETRA analogue of the P25 adjacent
-status broadcast
+then up to seven neighbour-cell elements, each a 12-bit main carrier and
+a P-bit-gated tail of optionals — band extension, MCC, MNC, LA, status
+fields. It is the TETRA analogue of the P25 adjacent status broadcast
 ([P25 End to End Part 10]({{ '/blog/deep-dives/p25-end-to-end-10-sites-roaming/' | relative_url }})).
 
 The broadcast is too long for one MAC block, so it arrives fragmented: a
@@ -132,10 +130,10 @@ in octets, which osmo-tetra's `rx_resrc` and tetra-kit's `decodeLength`
 both honour — was parsed and never applied, and the fill-bit indication
 never stripped the fill run ('1' then '0's, §23.4.3.2). Whatever followed
 the PDU inside the block leaked into the TL-SDU. Prefix-reading parsers
-never noticed. `ParseDNwrkBroadcast`'s last neighbour cell reads a tail of
-P-bits, so it turned the leaked bits into phantom optionals: a band
-extension of garbage with band bits `1111` renders as a neighbour above
-1 GHz, which no TETRA allocation occupies. `tmSDU` now ends at the length
+never noticed; `ParseDNwrkBroadcast`'s last neighbour cell reads a tail of
+P-bits, so it turned the leaked bits into phantom optionals — band bits
+`1111` render as a neighbour above 1 GHz, which no TETRA allocation
+occupies. `tmSDU` now ends at the length
 indication and strips fill when the flag says so (`stripFillBits`); the
 test builders had been writing a placeholder length the decoder ignored,
 and honouring the field forced them to stamp real lengths
@@ -166,8 +164,15 @@ DBG tetra: dropping d-nwrk-broadcast with implausible neighbour cell — whole l
 
 `TestLearnNeighbourCellsRejectsImplausibleCells` reproduces the operator's
 exact row beside a band-13 sibling, learns it twice, and asserts zero
-surfaced neighbours. The `tl_sdu_hex` field is the point of the fix as
-much as the drop: it is the instrument for the *next* report, the
+surfaced neighbours; its second half is the no-harm control, a fully
+plausible broadcast learned twice afterwards that still surfaces its cell
+(cell 4, carrier 2720), so one rejected list does not poison the next.
+Determinism is the whole point. A random bit error fails confirm-twice on
+its own; a splice or a leaked tail is the same bits every cycle, which is
+exactly what the gate reads as confirmation, and no amount of repetition
+can tell the two apart. The `tl_sdu_hex` field is therefore the point of
+the fix as much as the drop: it is the instrument for the *next* report,
+the
 [census-everything]({{ '/blog/solution-postmortem/from-the-issue-tracker-21-census-everything/' | relative_url }})
 move of logging evidence on the failure path. The corruption source was
 still unknown. The hex dump found it one day later, with no new capture.
@@ -185,64 +190,55 @@ Bogus sites that had looked plausible — `mnc=1021`, `mnc=1032`, the real
 cells' LAs shifted into the MNC field — were the same splices confirming
 twice, because the loss pattern repeats with the broadcast schedule.
 
-Three holes let a chain survive the losses that set a splice up, all in
-`decodeDownlinkSlot` and `fragChainAdjacentLocked`:
+Three holes let a chain survive the losses that set a splice up:
 
 1. **A control slot with one decoded SCH/HD half counted as recovered.**
    On an AACH-confirmed control slot both halves carry signalling (stealing
    exists only on traffic slots), so the failed half *is* a lost block.
-   "Lost" is now judged per block: `slotFullyRecovered := fullOK || (half1OK && half2OK)`.
+   "Lost" is now per block: `slotFullyRecovered := fullOK || (half1OK && half2OK)`.
 2. **`DecodeAACH` is a maximum-likelihood search that always returns the
    nearest RM(30,14) codeword.** Its `errs` is the Hamming distance; garbage
-   lands at 4–6, and a faded AACH was a coin-flip "control" or "traffic".
-   Whenever the coin read "traffic", the chain kept going. The
-   classification is trusted only at `errs ≤ aachClassifyMaxErrs` (2); an
-   unconfident slot is unclassifiable and abandons the chain. (Searching
-   the other three rotations on unconfident slots was tried and reverted:
-   the extra 16 384-codeword searches took the 120 s replay from 61 s to
-   139 s.)
+   lands at 4–6, so a faded AACH was a coin-flip "control" or "traffic",
+   and whenever it read "traffic" the chain kept going. The classification
+   is trusted only at `errs ≤ aachClassifyMaxErrs` (2); an unconfident slot
+   abandons the chain. (Searching the other three rotations on unconfident
+   slots was tried and reverted: the extra 16 384-codeword searches took
+   the 120 s replay from 61 s to 139 s.)
 3. **Adjacency was four frames, with no grid.** It is now two frames plus
    jitter — `fragMaxGapDibits = 2*4*255 + 2*fragGridJitterDibits` — and the
    continuation must land on the chain's 255-dibit slot grid
    (`onChainSlotGrid`). The grid is load-bearing: the NCDB detector also
    emits spurious off-grid correlator hits (+92 and +163 dibits on the 4 Sep
-   captures, tolerance-2 matches inside payloads), and a naive
-   gap-between-emits check, the first attempt, aborted every chain on this
-   SCBS/timeshare carrier — neighbours 0/8.
+   captures), and a naive gap-between-emits check, the first attempt,
+   aborted every chain on this SCBS/timeshare carrier — neighbours 0/8.
 
 <figure class="lab-figure">
-<svg viewBox="0 0 680 230" width="680" height="230" role="img" aria-label="A dibit-stream timeline on a 255-dibit slot grid. Transmission A's start fragment and MAC-FRAG arrive one frame apart; the slot where its MAC-END should arrive is lost; three frames later transmission B's MAC-END arrives. The old four-frame window spliced B's end onto A's chain into one TL-SDU with 132 trailing bits; the new rule abandons the chain at the lost slot and refuses B's MAC-END as stale. An off-grid correlator hit at plus 92 dibits counts for nothing.">
-  <text x="340" y="14" text-anchor="middle" fill="currentColor" font-size="10" font-weight="bold">fragment chain on the 255-dibit slot grid (one MCCH frame = 4 slots = 1020 dibits)</text>
+<svg viewBox="0 0 680 220" width="680" height="220" role="img" aria-label="A dibit-stream timeline on a 255-dibit slot grid. Transmission A's start fragment and MAC-FRAG arrive one frame apart; the slot where its MAC-END should arrive is lost; three frames later transmission B's MAC-END arrives. The old four-frame window spliced B's end onto A's chain; the new rule abandons the chain at the lost slot and refuses B's MAC-END as stale.">
+  <text x="340" y="14" text-anchor="middle" fill="currentColor" font-size="10" font-weight="bold">fragment chain on the 255-dibit slot grid (one MCCH frame = 1020 dibits)</text>
   <line x1="30" y1="60" x2="650" y2="60" stroke="var(--fg-muted)"/>
   <g fill="var(--fg-muted)" font-size="8" text-anchor="middle">
-    <line x1="60" y1="56" x2="60" y2="64" stroke="var(--fg-muted)"/><text x="60" y="76">0</text>
-    <line x1="200" y1="56" x2="200" y2="64" stroke="var(--fg-muted)"/><text x="200" y="76">1020</text>
-    <line x1="340" y1="56" x2="340" y2="64" stroke="var(--fg-muted)"/><text x="340" y="76">2040</text>
-    <line x1="480" y1="56" x2="480" y2="64" stroke="var(--fg-muted)"/><text x="480" y="76">3060</text>
-    <line x1="620" y1="56" x2="620" y2="64" stroke="var(--fg-muted)"/><text x="620" y="76">4080</text>
+    <text x="60" y="76">0</text><text x="200" y="76">1020</text><text x="340" y="76">2040</text><text x="480" y="76">3060</text><text x="620" y="76">4080</text>
   </g>
   <rect x="44" y="40" width="32" height="16" fill="none" stroke="currentColor" stroke-width="1.5"/>
-  <text x="60" y="35" text-anchor="middle" fill="currentColor" font-size="8">A: start frag</text>
+  <text x="60" y="35" text-anchor="middle" fill="currentColor" font-size="8">A start</text>
   <rect x="184" y="40" width="32" height="16" fill="none" stroke="currentColor" stroke-width="1.5"/>
-  <text x="200" y="35" text-anchor="middle" fill="currentColor" font-size="8">A: MAC-FRAG</text>
+  <text x="200" y="35" text-anchor="middle" fill="currentColor" font-size="8">A MAC-FRAG</text>
   <rect x="324" y="40" width="32" height="16" fill="none" stroke="var(--fg-muted)" stroke-dasharray="2 2"/>
-  <text x="340" y="35" text-anchor="middle" fill="var(--fg-muted)" font-size="8">A: MAC-END lost</text>
+  <text x="340" y="35" text-anchor="middle" fill="var(--fg-muted)" font-size="8">A MAC-END lost</text>
   <rect x="604" y="40" width="32" height="16" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
-  <text x="620" y="35" text-anchor="middle" fill="var(--accent)" font-size="8">B: MAC-END</text>
+  <text x="620" y="35" text-anchor="middle" fill="var(--accent)" font-size="8">B MAC-END</text>
   <circle cx="96" cy="60" r="3" fill="none" stroke="var(--fg-muted)"/>
-  <text x="96" y="90" text-anchor="middle" fill="var(--fg-muted)" font-size="8">+92 off-grid hit</text>
+  <text x="96" y="90" text-anchor="middle" fill="var(--fg-muted)" font-size="8">+92 off-grid</text>
   <text x="26" y="124" text-anchor="end" fill="var(--fg-muted)" font-size="8">old</text>
-  <path d="M60 120 L200 120 L340 120 L620 120" fill="none" stroke="var(--fg-muted)" stroke-dasharray="4 3"/>
-  <text x="340" y="112" text-anchor="middle" fill="var(--fg-muted)" font-size="8">4-frame window, slot-level check: lost slot read "traffic" or "half recovered" → chain kept</text>
-  <text x="340" y="136" text-anchor="middle" fill="var(--fg-muted)" font-size="8">A[:split] ‖ B[split:] → one TL-SDU, real cells 9,10 then a jump back + 132 trailing bits → phantom sites</text>
+  <path d="M60 120 L620 120" fill="none" stroke="var(--fg-muted)" stroke-dasharray="4 3"/>
+  <text x="340" y="112" text-anchor="middle" fill="var(--fg-muted)" font-size="8">4-frame window, lost slot read "traffic" → B spliced onto A → 132 trailing bits → phantom sites</text>
   <text x="26" y="178" text-anchor="end" fill="var(--accent)" font-size="8">new</text>
-  <path d="M60 174 L200 174 L340 174" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+  <path d="M60 174 L340 174" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
   <line x1="340" y1="166" x2="340" y2="182" stroke="var(--accent)" stroke-width="1.5"/>
-  <text x="340" y="196" text-anchor="middle" fill="var(--accent)" font-size="8">undecoded control slot on the grid → abandonFragment (frag_abandons++)</text>
-  <text x="620" y="196" text-anchor="middle" fill="var(--accent)" font-size="8">3 frames late → stale, refused</text>
-  <text x="340" y="218" text-anchor="middle" fill="currentColor" font-size="8">fragMaxGapDibits = 2·4·255 + 2·3 = 2046 · continuation must satisfy onChainSlotGrid · aachClassifyMaxErrs = 2</text>
+  <text x="340" y="196" text-anchor="middle" fill="var(--accent)" font-size="8">lost control slot on the grid → abandonFragment · 3 frames late → stale</text>
+  <text x="340" y="214" text-anchor="middle" fill="currentColor" font-size="8">fragMaxGapDibits = 2046 · onChainSlotGrid · aachClassifyMaxErrs = 2</text>
 </svg>
-<figcaption>The splice: transmission A loses its MAC-END, transmission B's MAC-END arrives three frames later inside the old four-frame window, and the two halves parse as one broadcast. The new rule abandons A at the lost slot and refuses B as stale.</figcaption>
+<figcaption>Transmission A loses its MAC-END; B's arrives three frames later inside the old window and the two halves parse as one broadcast. The new rule abandons A at the lost slot and refuses B as stale.</figcaption>
 </figure>
 
 Two layers sit behind those. `ParseDNwrkBroadcast` rejects **≥ 8
@@ -259,8 +255,7 @@ The field pin is literal. `TestParseDNwrkBroadcastRejectsSplicedFieldCapture`
 feeds the 17:02 `tl_sdu_hex` from the 4 Sep log — 552 bits — to the parser
 and asserts rejection; the old parser returned `ok=true` with seven
 "cells" and 132 bits of residue. `TestParseDNwrkBroadcastTrailingResidue`
-pins the boundary: a flush-ending broadcast and one with 7 fill bits
-parse, 8 residual bits reject.
+pins the boundary: 7 fill bits parse, 8 residual bits reject.
 
 The chain holes are pinned in `frag_continuity_test.go`, each failing
 against the old code by publishing an enriched grant from a corrupt
@@ -268,13 +263,12 @@ reassembly (`enrichedGrantSeen`: a D-SETUP with source and emergency bit
 that only a completed chain carries). `TestFragmentReassemblyAbandonedOnUndecodedControlSlot`
 decodes a slot whose AACH says "control" over garbage halves;
 `…AbandonedOnHalfSlotLoss` gives it one clean SCH/HD half and one lost;
-`…AbandonedOnUnclassifiableSlot` searches for a garbage AACH beyond the
-trust gate at every rotation that *also* coin-flips to "traffic" under the
-old code, so it cannot silently exercise the wrong branch;
-`…RequiresOnGridContinuation` refuses a MAC-END at +92 dibits and one
-three frames late, and still accepts one two frames late (the frame-18
-skip). `TestFragmentReassemblySurvivesDecodedSlots` is the no-harm
-control: clean control slots mid-chain must not abandon it.
+`…AbandonedOnUnclassifiableSlot` picks a garbage AACH beyond the trust
+gate at every rotation that *also* coin-flips to "traffic" under the old
+code; `…RequiresOnGridContinuation` refuses a MAC-END at +92 dibits and
+one three frames late, and still accepts one two frames late (the
+frame-18 skip). `TestFragmentReassemblySurvivesDecodedSlots` is the
+no-harm control: clean control slots mid-chain must not abandon it.
 
 On air, both 4 Sep captures replay **8/8 real cells** through
 `TestTETRANeighbourReportReplay`. The periodic DEBUG line
@@ -294,14 +288,12 @@ raw, their bit maps un-named until a capture confirms them.
 
 - **Boundary metadata is honoured, never inferred.** `tmSDU` and
   `macFragmentPayload` end at the length indication and strip fill only
-  when the PDU's own flag says to; `stripFillBits` strips to empty rather
-  than guess when there is no anchoring '1'.
-- **Confidence travels with the decode.** `DecodeAACH` returns `errs`, and
-  `aachTrusted` is a separate boolean — a classification is data only
+  when the PDU's own flag says to.
+- **Confidence travels with the decode.** `DecodeAACH` returns `errs`;
+  `aachTrusted` is a separate boolean, and a classification is data only
   below the gate.
 - **Positions are stamped before any block decodes.** `curSlotPos` is set
-  at the top of `decodeDownlinkSlot` so every integrity check sees the same
-  grid.
+  at the top of `decodeDownlinkSlot` so every check sees the same grid.
 - **Rejections carry their evidence.** Every reject path logs
   `packBitsHex(tl)`, which is how the root cause was found from a log alone.
 

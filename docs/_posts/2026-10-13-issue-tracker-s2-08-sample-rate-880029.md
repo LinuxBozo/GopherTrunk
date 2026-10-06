@@ -23,22 +23,21 @@ the table that error comes from.*
 
 > **TL;DR:** FLAC stores a stream's sample rate twice: in the 20-bit
 > STREAMINFO field (ceiling 1 048 575 Hz) and in every frame header's
-> 4-bit code, which can carry a rate verbatim only if it is one of eleven
+> 4-bit code, which carries a rate verbatim only if it is one of eleven
 > fixed audio rates, ≤ 65 535 Hz, ≤ 655 350 Hz in tens of Hz, or ≤ 255 kHz
 > in whole kHz; code `0000` means "get it from STREAMINFO". A siglab slice
 > of a 6.25 MS/s X310 at 880 kHz lands at 880 029 Hz through the DDC's
-> capped L/M — odd, so not tens of Hz; above 65 535; not whole kHz — and
-> `mewkiz/flac` v1.0.14 never picks `0000` on its own, so the first block
-> failed. A clean 880 000 Hz would have failed the same way (above
-> 655 350). `baseband.FLACFrameSampleRate` now returns the rate when a
-> frame can carry it verbatim and 0 otherwise, shared by the stereo IQ
-> encode core (`FLACIQEncoder`) and the mono voice twin
-> (`voice.FlacWriter`); `FLACMaxSampleRateHz` = 1<<20 − 1 is refused at
-> construction instead of silently truncated; and the capture route 400s a
-> full-band FLAC over the ceiling before pinning the tuner. Pinned by
-> `TestFLACIQWriterEncodesFrameHeaderUnrepresentableRates`,
+> capped L/M — odd, above 65 535, not whole kHz — and `mewkiz/flac` v1.0.14
+> never picks `0000` on its own, so the first block failed; a clean
+> 880 000 Hz would have failed too. `baseband.FLACFrameSampleRate` now
+> returns the rate when a frame can carry it and 0 otherwise, shared by
+> `FLACIQEncoder` and `voice.FlacWriter`; `FLACMaxSampleRateHz` = 1<<20 − 1
+> is refused at construction instead of truncated; and the capture route
+> 400s a full-band FLAC over the ceiling before pinning the tuner. Pinned
+> by `TestFLACIQWriterEncodesFrameHeaderUnrepresentableRates`,
 > `TestFLACFrameSampleRate`, `TestSiglabCaptureFLACSliceAtOddRate` (the
-> operator's request verbatim) and `TestSiglabCaptureFLACFullBandOverCeilingIs400`.
+> operator's request verbatim) and
+> `TestSiglabCaptureFLACFullBandOverCeilingIs400`.
 
 **Key takeaways**
 
@@ -85,19 +84,16 @@ as `uint32(ddc.OutRateHz() + 0.5)`. The rational resampler inside it caps
 its L/M, so 6.25 MS/s to "880 kHz" lands at **880 029 Hz**, not 880 000 —
 a perfectly good rate for a cs16 body, which carries no rate at all, and
 for a WAV header, whose rate field is a plain 32-bit integer. The FLAC
-container is different. The capture ran, the first 4096-sample block was
-handed to the encoder, and it returned `unable to encode sample rate
-880029`; the staged file was abandoned after 3908 samples, and the
-operator had waited out the grab for nothing. Their second attempt, as
+container is different. The capture ran, the first block was handed to the encoder, and it
+returned `unable to encode sample rate 880029`; the capture aborted after
+3908 samples, and the operator had waited out the grab for nothing. Their second attempt, as
 cs16, is the one Part 7 took apart.
 
-This is the same shape as a bug from the FLAC rollout itself. When FLAC
-became a first-class container on every recorder, the streaming
-`EncodeCapture` had no container case and fell through to u8, so a staged
-"flac" capture silently got a mislabelled body under a container label;
-that was fixed by routing wav/flac through `siglab.IQContainer`, which
-owns the header and the finalize. The 880 029 failure is the next layer
-down: the container is right, but the format cannot describe the rate.
+It is the next layer down from a bug in the FLAC rollout itself: the
+streaming `EncodeCapture` had no container case and fell through to u8, so
+a staged "flac" capture once got a mislabelled body, fixed by routing
+wav/flac through `siglab.IQContainer`. Here the container is right, and
+the format cannot describe the rate.
 
 ## Two places for one rate
 
@@ -144,10 +140,10 @@ GopherTrunk encodes through `github.com/mewkiz/flac` v1.0.14. Its
 fixed rates and then a `default` that tries the three suffix codes in
 turn — whole kHz, then Hz, then tens of Hz — and, finding none that fits,
 returns `errutil.Newf("unable to encode sample rate %v", sampleRate)`.
-The `0000` branch exists in the encoder (a header whose `SampleRate` field
-is 0 is written as that code), but **nothing selects it automatically**:
-the encoder writes whatever rate the caller put in the frame header, and
-GopherTrunk's writers put the stream rate there, because for every rate a
+A header whose `SampleRate` field is 0 is written as code `0000`, but
+**nothing selects it automatically**: the encoder writes whatever rate the
+caller put in the frame header, and GopherTrunk's writers put the stream
+rate there, because for every rate a
 recorder had ever used — 8 kHz voice, 48 kHz channelised IQ, 144 kHz
 TETRA, 200 and 250 kS/s MRC captures — that was representable and
 produced a stream a third-party decoder could seek without reading
@@ -272,29 +268,13 @@ and a future "fix" that rounds it would silently change every slice's
 clock. And it pins the centre, which is the Part 7 bug — both failures
 came from one request, and one test now covers both.
 
-What this does not change: FLAC remains a 16-bit container, the encode's
-prediction analysis runs on the capture goroutine, and rates near the
-ceiling are large files encoded slowly. `hunt -survey-capture`
-deliberately stays f32. For an operator the practical rule is unchanged
-from
+What this does not change: FLAC remains a 16-bit container, and
+`hunt -survey-capture` deliberately stays f32. The practical rule is
+unchanged from
 [Analog Edge Part 10]({{ '/blog/tutorials/analog-edge-10-capture-discipline/' | relative_url }}):
 a narrowband slice as FLAC is a good archive; a multi-MS/s full band is
 cs16 or wav, and the route will now say so instead of letting the grab
 run.
-
-### How the frame-header table shaped the Go code
-
-- **A policy function, not a per-writer branch.** `FLACFrameSampleRate` is
-  the single place that mirrors the upstream switch; both `flushBlock`s
-  call it.
-- **Construction-time refusal for the hard ceiling.** A rate the format
-  cannot represent at all is an error from `New…`, never a truncated
-  header.
-- **The route checks what the encoder would.** `outRate` is computed before
-  the tuner is pinned, so the 400 costs the operator nothing.
-- **Tests use the rates that bit.** 880 029 is in three tests by its exact
-  value, and the policy table test holds the boundary values 65 535 /
-  65 537 and 655 350.
 
 ## Where this goes next
 
@@ -336,12 +316,6 @@ The streaming down-converter's rational resampler caps its L/M, so an
 takes `ddc.OutRateHz()` as the file's rate.
 `TestSiglabCaptureFLACSliceAtOddRate` pins that exact value rather than
 rounding it, because the odd rate is the slice's true sample clock.
-
-**Does the frame-header change affect voice recordings?**
-Only in that `voice.FlacWriter` calls the same `FLACFrameSampleRate`; at 8
-or 48 kHz the function returns the rate unchanged, so those streams are
-byte-identical to before. The shared policy exists so the mono voice twin
-and the stereo IQ core cannot drift apart.
 
 ## Series navigation
 

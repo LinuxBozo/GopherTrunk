@@ -91,8 +91,9 @@ or ARMV8 compiled version".
 GopherTrunk had no ARM Android build, but it had something that looked
 like one: Linux ARM builds, cross-compiled with `CGO_ENABLED=0`, described
 on every install page as a single static binary with "no glibc version
-drama". Termux runs ordinary Linux ELF executables. If the claim were true
-the arm64 tarball would have been the answer. It was not true, and the
+drama". Termux runs ordinary Linux ELF executables, and the reporter's
+driver app already served the dongle on a local port. If the claim were
+true the arm64 tarball would have been the answer. It was not true, and the
 reason has nothing to do with SDR code.
 
 The live-audio player's Linux backend talks to ALSA without cgo by loading
@@ -127,38 +128,47 @@ uses Bionic, which has **neither** `/lib64/ld-linux*.so.2` nor
 The README's "Zero CGO, single static binary" was, on Linux, a statement
 about the toolchain that had been read as a statement about the output.
 
+The import itself is small and careful, which is part of why nobody
+looked. `loadALSA` dlopens the SONAME `libasound.so.2` once — the
+ABI-stable symlink, never the dev package's `libasound.so` — with
+`RTLD_NOW|RTLD_GLOBAL`, binds the six functions through
+`purego.RegisterLibFunc` under a `recover` so a stripped-down library
+degrades instead of panicking, and a failed dlopen falls back to the
+ioctl backend so distroless images keep audio. None of that runs at link
+time. The `NEEDED` entries exist whether or not a sound card is ever
+opened, and whether or not `audio.enabled` is true: the mere presence of
+the import in the build graph is what sets them.
+
 <figure class="lab-figure">
-<svg viewBox="0 0 680 220" width="680" height="220" role="img" aria-label="Two build pipelines side by side. Top: the default Linux build compiles cmd/gophertrunk with CGO_ENABLED=0, includes alsa_linux.go which imports purego, and the resulting ELF declares NEEDED libdl.so.2, libpthread.so.0 and libc.so.6 plus the glibc interpreter; Bionic on Android has none of these, so it does not start. Bottom: the nolibasound build excludes alsa_linux.go, includes alsa_static_linux.go routing audio to the /dev/snd ioctl backend, and the ELF has no dynamic section; scripts/check-static.sh passes and the binary starts under Termux.">
+<svg viewBox="0 0 680 200" width="680" height="200" role="img" aria-label="Two build pipelines. Top: the default build with CGO_ENABLED=0 includes alsa_linux.go, which imports purego, and the ELF declares NEEDED libdl.so.2, libpthread.so.0 and libc.so.6 plus the glibc interpreter, so it does not start on Bionic. Bottom: the nolibasound build includes alsa_static_linux.go, routes audio to the /dev/snd ioctl backend, has no dynamic section, passes check-static.sh and starts under Termux.">
   <text x="340" y="14" text-anchor="middle" fill="currentColor" font-size="10" font-weight="bold">same source, same CGO_ENABLED=0 — two different ELF files</text>
   <text x="20" y="48" fill="var(--fg-muted)" font-size="9">default</text>
-  <rect x="80" y="34" width="120" height="22" fill="none" stroke="currentColor"/>
-  <text x="140" y="48" text-anchor="middle" fill="currentColor" font-size="8">go build ./cmd/gophertrunk</text>
-  <line x1="200" y1="45" x2="226" y2="45" stroke="var(--fg-muted)"/>
-  <rect x="226" y="34" width="120" height="22" fill="none" stroke="currentColor"/>
-  <text x="286" y="48" text-anchor="middle" fill="currentColor" font-size="8">alsa_linux.go → purego</text>
+  <rect x="80" y="34" width="110" height="22" fill="none" stroke="currentColor"/>
+  <text x="135" y="48" text-anchor="middle" fill="currentColor" font-size="8">go build</text>
+  <line x1="190" y1="45" x2="216" y2="45" stroke="var(--fg-muted)"/>
+  <rect x="216" y="34" width="130" height="22" fill="none" stroke="currentColor"/>
+  <text x="281" y="48" text-anchor="middle" fill="currentColor" font-size="8">alsa_linux.go → purego</text>
   <line x1="346" y1="45" x2="372" y2="45" stroke="var(--fg-muted)"/>
   <rect x="372" y="28" width="170" height="34" fill="none" stroke="var(--fg-muted)" stroke-dasharray="3 3"/>
   <text x="457" y="41" text-anchor="middle" fill="var(--fg-muted)" font-size="8">NEEDED libdl.so.2 · libpthread.so.0 · libc.so.6</text>
   <text x="457" y="54" text-anchor="middle" fill="var(--fg-muted)" font-size="8">interp /lib64/ld-linux-x86-64.so.2</text>
   <line x1="542" y1="45" x2="568" y2="45" stroke="var(--fg-muted)"/>
-  <text x="614" y="42" text-anchor="middle" fill="var(--fg-muted)" font-size="8">glibc: runs</text>
-  <text x="614" y="54" text-anchor="middle" fill="var(--fg-muted)" font-size="8">Bionic: no loader</text>
+  <text x="614" y="48" text-anchor="middle" fill="var(--fg-muted)" font-size="8">Bionic: no loader</text>
   <text x="20" y="118" fill="var(--accent)" font-size="9">nolibasound</text>
-  <rect x="80" y="104" width="120" height="22" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
-  <text x="140" y="118" text-anchor="middle" fill="var(--accent)" font-size="8">-tags nolibasound</text>
-  <line x1="200" y1="115" x2="226" y2="115" stroke="var(--fg-muted)"/>
-  <rect x="226" y="104" width="120" height="22" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
-  <text x="286" y="118" text-anchor="middle" fill="var(--accent)" font-size="8">alsa_static_linux.go → /dev/snd ioctl</text>
+  <rect x="80" y="104" width="110" height="22" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+  <text x="135" y="118" text-anchor="middle" fill="var(--accent)" font-size="8">-tags nolibasound</text>
+  <line x1="190" y1="115" x2="216" y2="115" stroke="var(--fg-muted)"/>
+  <rect x="216" y="104" width="130" height="22" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
+  <text x="281" y="118" text-anchor="middle" fill="var(--accent)" font-size="8">alsa_static_linux.go → ioctl</text>
   <line x1="346" y1="115" x2="372" y2="115" stroke="var(--fg-muted)"/>
   <rect x="372" y="98" width="170" height="34" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
   <text x="457" y="111" text-anchor="middle" fill="var(--accent)" font-size="8">no dynamic section</text>
   <text x="457" y="124" text-anchor="middle" fill="var(--accent)" font-size="8">check-static.sh: statically linked</text>
   <line x1="542" y1="115" x2="568" y2="115" stroke="var(--fg-muted)"/>
-  <text x="614" y="112" text-anchor="middle" fill="var(--accent)" font-size="8">Termux: starts</text>
-  <text x="614" y="124" text-anchor="middle" fill="var(--accent)" font-size="8">(file: statically linked)</text>
-  <line x1="40" y1="160" x2="640" y2="160" stroke="var(--fg-muted)" stroke-dasharray="2 3"/>
-  <text x="340" y="180" text-anchor="middle" fill="currentColor" font-size="8">CI termux-static: make termux-build (arm64 + armv7, GOARM=7) → scripts/check-static.sh → go vet / go test -tags nolibasound ./internal/voice/player/</text>
-  <text x="340" y="200" text-anchor="middle" fill="var(--fg-muted)" font-size="8">a new purego or cgo import anywhere in cmd/gophertrunk's graph reintroduces (NEEDED) and fails the job</text>
+  <text x="614" y="118" text-anchor="middle" fill="var(--accent)" font-size="8">Termux: starts</text>
+  <line x1="40" y1="156" x2="640" y2="156" stroke="var(--fg-muted)" stroke-dasharray="2 3"/>
+  <text x="340" y="176" text-anchor="middle" fill="currentColor" font-size="8">CI termux-static: make termux-build (arm64 + armv7) → check-static.sh → go vet / go test -tags nolibasound</text>
+  <text x="340" y="192" text-anchor="middle" fill="var(--fg-muted)" font-size="8">a new purego or cgo import reintroduces (NEEDED) and fails the job</text>
 </svg>
 <figcaption>The compiler flag is identical in both rows; the ELF's dynamic section is what differs, and only the artefact can be checked for it.</figcaption>
 </figure>
@@ -313,7 +323,7 @@ with it.
 ## FAQ
 
 **Why is a Go binary built with CGO_ENABLED=0 dynamically linked?**
-Because a dependency can declare a dynamic section without cgo.
+Because a pure-Go dependency can still declare a dynamic section at link time.
 GopherTrunk's ALSA player loads `libasound.so.2` through
 `github.com/ebitengine/purego`, whose `Dlopen` links glibc's `libdl.so.2`
 and the `/lib64/ld-linux*` interpreter. `readelf -d` on the binary shows
