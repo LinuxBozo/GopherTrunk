@@ -308,24 +308,20 @@ cross-build: web-build
 	done
 	@ls -lh dist/
 
-# termux-build cross-compiles static Linux ARM binaries for Android / Termux
-# (#1230): arm64 for 64-bit Android, armv7 for 32-bit Android (most phones
-# from before ~2017 run a 32-bit userland even on a 64-bit CPU). Termux runs
-# Linux ELF binaries, but Android's Bionic libc has no glibc loader or libdl,
-# so these must be static: -tags nolibasound drops the purego ALSA backend
-# that links libdl (Linux audio then uses the direct /dev/snd backend), and
-# scripts/check-static.sh fails the build if anything links dynamically.
+# termux-build cross-compiles the Android / Termux binaries (#1230): arm64 for
+# 64-bit Android, armv7 for 32-bit Android (most phones from before ~2017 run a
+# 32-bit userland even on a 64-bit CPU). They are GOOS=android, built with cgo
+# against the Android NDK (set ANDROID_NDK_HOME): a GOOS=linux binary is killed
+# with SIGSYS by Android's seccomp filter on the first exec.LookPath of an
+# installed program. scripts/build-android.sh has the details;
+# scripts/check-android.sh fails the build if a binary is not an Android
+# executable.
 TERMUX_ARCHES ?= arm64 armv7
 
 termux-build:
 	@mkdir -p dist
 	@for a in $(TERMUX_ARCHES); do \
-	    case "$$a" in armv7) ga=arm; gm=7 ;; *) ga=$$a; gm= ;; esac; \
-	    echo "  → CGO_ENABLED=0 GOOS=linux GOARCH=$$ga GOARM=$$gm -tags nolibasound"; \
-	    CGO_ENABLED=0 GOOS=linux GOARCH=$$ga GOARM=$$gm \
-	        $(GO) build -trimpath -tags "nolibasound $(TAGS)" -ldflags "$(LDFLAGS)" \
-	        -o dist/gophertrunk-termux-$$a ./cmd/gophertrunk || exit 1; \
-	    scripts/check-static.sh dist/gophertrunk-termux-$$a || exit 1; \
+	    GO="$(GO)" TAGS="$(TAGS)" scripts/build-android.sh $$a dist/gophertrunk-termux-$$a "$(LDFLAGS)" || exit 1; \
 	done
 
 # release-dry-run rehearses the release.yml linux job locally so an

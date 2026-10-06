@@ -7,15 +7,17 @@ nav_group: Reference
 
 # Android (Termux)
 
-GopherTrunk publishes static Linux ARM binaries that run inside
-[Termux](https://termux.dev) on Android. A phone cannot hand its USB dongle
+GopherTrunk publishes Android ARM binaries that run inside
+[Termux](https://termux.dev) on Android 5.0 or later. A phone cannot hand its USB dongle
 straight to a Termux program, so the dongle is reached the way a remote SDR
 is: an **rtl_tcp driver app** owns the USB device and serves it on a local
 port, and GopherTrunk connects to that port.
 
-> **Status:** the Termux builds are new and have been checked for static
-> linking only, not yet run on a phone. Reports from a real device are
-> welcome on [issue #1230](https://github.com/MattCheramie/GopherTrunk/issues/1230).
+> **Status:** the v1.2.3 Termux builds were Linux binaries and crashed with
+> `SIGSYS: bad system call` on most phones (see *Why a separate build* below).
+> Releases after v1.2.3 are native Android executables. Reports from a real
+> device are welcome on
+> [issue #1230](https://github.com/MattCheramie/GopherTrunk/issues/1230).
 
 ## 1. Pick the right download
 
@@ -39,7 +41,9 @@ cd gophertrunk-<version>-termux-armv7
 ```
 
 The `make termux-build` target produces the same two binaries from source
-(under `dist/`).
+(under `dist/`). It needs the
+[Android NDK](https://developer.android.com/ndk/downloads): point
+`ANDROID_NDK_HOME` at it.
 
 ## 2. Serve the dongle with rtl_tcp
 
@@ -62,9 +66,9 @@ The daemon works the same way, with the dongle listed under `sdr.rtl_tcp`
 
 ## Limits
 
-- **Use an IP address, not a host name.** A static Go binary looks up DNS
-  servers in `/etc/resolv.conf`, which Android does not have, so a LAN or
-  internet host name may fail to resolve. `127.0.0.1` or a numeric LAN
+- **Prefer an IP address.** The Android build resolves host names through
+  Android's own resolver, so a LAN or internet host name should work, but
+  this has not been checked on a phone yet. `127.0.0.1` or a numeric LAN
   address always works.
 - **No live audio.** Android does not give Termux programs access to the
   sound hardware. With `audio.enabled: true` the daemon logs that the audio
@@ -72,8 +76,16 @@ The daemon works the same way, with the dongle listed under `sdr.rtl_tcp`
   skip that. Recordings, the web console and the CLI tools are unaffected.
 - **CPU.** An older phone may struggle at 2.4 MS/s. If GopherTrunk warns
   that it is dropping IQ, lower `-rate` (or `sdr.sample_rate`).
-- **Why a separate build:** the regular Linux binary loads ALSA's
-  `libasound` through glibc's `libdl` for live audio. Android uses a
-  different C library with neither, so that binary does not start there.
-  The Termux build is compiled with `-tags nolibasound`, which leaves that
-  out and makes the binary fully static.
+- **Why a separate build:** the regular Linux binary cannot start on
+  Android, for two reasons.
+  - It loads ALSA's `libasound` through glibc's `libdl` for live audio.
+    Android uses a different C library with neither. The Termux build uses
+    `-tags nolibasound`, which leaves that out.
+  - Android runs every app, Termux included, under a sandbox filter that
+    kills the process with `SIGSYS: bad system call` when it makes a
+    blocked system call. One of them, `faccessat2`, is what Go's Linux build
+    uses whenever it looks up an installed program, and the clipboard
+    library does that at start-up for `termux-clipboard-set`. The v1.2.3
+    Termux builds were Linux binaries, so they crashed on any phone with the
+    Termux:API package installed. The Termux builds are now native Android
+    executables (`GOOS=android`), where Go never makes that call.

@@ -69,9 +69,12 @@ jobs:
       - run: go test -race -count=1 -timeout 25m ./...
       - run: make integration
 
-  # Android / Termux builds (#1230) must stay statically linked: Bionic has no
-  # glibc loader or libdl, so a dynamic binary does not start there. The
-  # check fails if a new purego/cgo import makes the nolibasound build dynamic.
+  # Android / Termux builds (#1230) are GOOS=android, linked with the NDK the
+  # runner image preinstalls (ANDROID_NDK_HOME). scripts/check-android.sh fails
+  # the job unless each binary uses Android's linker, links only Android system
+  # libraries, and carries no syscall.faccessat2 (which Android's seccomp
+  # filter answers with SIGSYS: the v1.2.3 GOOS=linux build died on start-up).
+  # The job keeps its old name so branch-protection settings still match.
   termux-static:
     runs-on: ubuntu-latest
     steps:
@@ -79,6 +82,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.25.13"
+      - run: echo "NDK at ${ANDROID_NDK_HOME:-unset}"
       - run: make termux-build
       - run: go vet -tags nolibasound ./internal/voice/player/
       - run: go test -tags nolibasound -count=1 ./internal/voice/player/

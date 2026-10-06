@@ -2001,17 +2001,28 @@ confirmation before any close-as-completed.
   change still moves it; the gain-independent answer is a noise-quieting squelch (the
   `dmrrx.carrierGate` discriminator-variance idea), not built. Per-channel `gain` landed in the
   same PR for mixed-band scan lists.
-- **`CGO_ENABLED=0` does NOT mean a static binary on Linux (#1230).** The ALSA player dlopens
-  libasound through purego (`internal/voice/player/alsa_linux.go`), and purego links glibc's
-  loader + `libdl.so.2` even with cgo off — so the regular Linux release cannot start on Android
-  (Bionic has neither) and the old release-notes "single static binary" claim was false. The
-  Termux tarballs build with `-tags nolibasound` (audio routes to the direct-/dev/snd ioctl
-  backend) and `scripts/check-static.sh` fails the build if anything links dynamically; CI's
-  `termux-static` job runs it. A new purego/cgo import anywhere in `cmd/gophertrunk`'s graph will
-  trip it — gate it behind the same tag or keep it off Linux. `gophertrunk power`
-  (`internal/powersweep`) is the rtl_power-compatible sweep logger the same issue asked for; its
-  rtl_tcp path is pinned end to end by `TestPowerSweepOverRTLTCP` (fake rtl_tcp server), but
-  neither it nor the Termux build has run on a real phone yet.
+- **A static GOOS=linux binary is NOT an Android binary — the Termux builds are GOOS=android
+  (#1230).** v1.2.3 shipped static `GOOS=linux` Termux tarballs (`-tags nolibasound` to drop
+  purego's libdl, which a Linux build links even with cgo off) and they died before `main` with
+  `SIGSYS: bad system call` on an S5 (LineageOS) and an Android 14 phone: Android puts every app
+  under a seccomp filter that answers `faccessat2` with SIGSYS (bionic
+  `SECCOMP_BLOCKLIST_APP.TXT`), and Go's `syscall.Faccessat` tries `faccessat2` first on
+  GOOS=linux and skips it ONLY on GOOS=android. `os/exec.LookPath` reaches it whenever the program
+  EXISTS, and `atotto/clipboard`'s init (via bubbles/textinput) looks up `termux-clipboard-set` —
+  so it crashed exactly on phones with Termux:API installed (the S5 Neo without it ran fine; the
+  crash register's 56-byte path is that file). Reproduced on a Linux host with a seccomp launcher
+  trapping syscall 439 (only crashes once a fake `termux-clipboard-set` is on PATH). Other
+  LookPath callers (colorprofile's `tmux info`, `-web`'s `xdg-open`, alerts `exec`) would hit it
+  too, so patching callers is whack-a-mole and a `-overlay` of the stdlib is refused when GOROOT
+  is in GOMODCACHE. Fix: `scripts/build-android.sh` builds GOOS=android with cgo against the NDK
+  (android/arm cannot link internally; API 21), linking only libc/libdl/liblog via
+  `/system/bin/linker{,64}` and getting bionic DNS for free; `scripts/check-android.sh` fails the
+  build unless the interpreter is Android's, NEEDED is that allowlist, and `go tool nm` shows no
+  `syscall.faccessat2` (failing-first: it rejects the v1.2.3-style binary on both counts). CI's
+  `termux-static` job and both release workflows use the runner's preinstalled
+  `ANDROID_NDK_HOME`. Not runnable on a CI host, so a phone is still the on-air gate.
+  `gophertrunk power` (`internal/powersweep`) is the rtl_power-compatible sweep logger the same
+  issue asked for; its rtl_tcp path is pinned by `TestPowerSweepOverRTLTCP` (fake rtl_tcp server).
 - **A detector threshold in radians-per-sample is a SAMPLE-RATE trap (#1184 CTCSS).** The
   conventional scanner's CTCSS gate never opened on air: its Goertzel threshold was calibrated
   on 48 kHz unit tests, but the scanner feeds 2.4 MS/s, where the same deviation is 50x smaller
