@@ -24,6 +24,9 @@ import (
 // this is acceptable, and the broker fan-out never back-pressures the
 // production control-channel decode.
 type mixerProvider struct {
+	// viewerIQ keeps an otherwise-idle SDR streaming while this view is
+	// open (Daemon.acquireViewerIQ); nil = just Subscribe.
+	viewerIQ   viewerIQFunc
 	pool       *sdr.Pool
 	brokers    map[string]*iqtap.Broker
 	sampleRate uint32
@@ -105,6 +108,7 @@ func (p *mixerProvider) OpenMixerStream(ctx context.Context, serial, proto strin
 		return nil, nil, fmt.Errorf("mixer: %w", err)
 	}
 
+	release := p.viewerIQ.acquire(serial)
 	sub := br.Subscribe()
 
 	go func() {
@@ -126,6 +130,7 @@ func (p *mixerProvider) OpenMixerStream(ctx context.Context, serial, proto strin
 	cleanup := func() {
 		cancel()
 		sub.Close()
+		release()
 	}
 	return wireOut, cleanup, nil
 }

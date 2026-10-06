@@ -31,8 +31,11 @@ import (
 // fps) tuple, but that adds enough bookkeeping to defer until profile
 // data shows the wins.
 type spectrumProvider struct {
-	pool    *sdr.Pool
-	brokers map[string]*iqtap.Broker
+	// viewerIQ keeps an otherwise-idle SDR streaming while this view is
+	// open (Daemon.acquireViewerIQ); nil = just Subscribe.
+	viewerIQ viewerIQFunc
+	pool     *sdr.Pool
+	brokers  map[string]*iqtap.Broker
 	// systems is the configured trunking systems, consulted to label
 	// each device with the P25 Phase 1 modulation it is decoding so the
 	// web panels can auto-select C4FM vs CQPSK.
@@ -277,6 +280,7 @@ func (p *spectrumProvider) OpenStream(ctx context.Context, serial string, fftSiz
 		return nil, nil, fmt.Errorf("spectrum: %w", err)
 	}
 
+	release := p.viewerIQ.acquire(serial)
 	sub := br.Subscribe()
 	internalOut := make(chan spectrum.Frame, 8)
 	wireOut := make(chan api.SpectrumFrame, 8)
@@ -318,6 +322,7 @@ func (p *spectrumProvider) OpenStream(ctx context.Context, serial string, fftSiz
 	cleanup := func() {
 		cancel()
 		sub.Close()
+		release()
 	}
 	return wireOut, cleanup, nil
 }

@@ -16,9 +16,13 @@ vi.mock("../api/bookmarks", () => ({
   },
 }));
 
-import { fetchSpectrumDevices, openSpectrumStream } from "../api/spectrum";
+import {
+  fetchSpectrumDevices,
+  openSpectrumStream,
+  tuneSpectrumDevice,
+} from "../api/spectrum";
 import { useShared } from "../store/shared";
-import { Spectrum } from "./Spectrum";
+import { Spectrum, parseTuneMHz } from "./Spectrum";
 
 function resetStore() {
   useShared.setState({
@@ -220,5 +224,65 @@ describe("Spectrum panel", () => {
     await waitFor(() => {
       expect(screen.getByText(/2 visible/)).toBeInTheDocument();
     });
+  });
+
+  it("tunes the selected SDR to a typed frequency", async () => {
+    // An SDR no decoder has tuned sits at 0 Hz, where click-to-tune cannot
+    // reach a real band — the typed entry is the way out.
+    vi.mocked(fetchSpectrumDevices).mockResolvedValue([
+      { serial: "00000001", driver: "rtlsdr", role: "control", center_hz: 0, sample_rate_hz: 2_400_000 },
+    ]);
+    vi.mocked(openSpectrumStream).mockReturnValue({ close: vi.fn() });
+    render(<Spectrum />);
+    await waitFor(() => expect(openSpectrumStream).toHaveBeenCalled());
+
+    const input = screen.getByLabelText(/tune the sdr to a centre frequency/i);
+    fireEvent.change(input, { target: { value: "162,550" } });
+    fireEvent.click(screen.getByRole("button", { name: "Tune" }));
+    await waitFor(() => {
+      expect(tuneSpectrumDevice).toHaveBeenCalledWith(expect.anything(), "00000001", 162_550_000);
+    });
+
+    fireEvent.change(input, { target: { value: "16x2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Tune" }));
+    await waitFor(() => {
+      expect(screen.getByText(/is not a frequency/)).toBeInTheDocument();
+    });
+    expect(tuneSpectrumDevice).toHaveBeenCalledTimes(1);
+  });
+
+  it("explains an open stream that delivers no frames on a voice SDR", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      vi.mocked(fetchSpectrumDevices).mockResolvedValue([
+        { serial: "00000002", driver: "rtlsdr", role: "voice", center_hz: 0, sample_rate_hz: 2_400_000 },
+      ]);
+      vi.mocked(openSpectrumStream).mockImplementation((_cfg, opts) => {
+        opts.onStatus?.("open");
+        return { close: vi.fn() };
+      });
+      render(<Spectrum />);
+      await waitFor(() => expect(screen.getByText("live")).toBeInTheDocument());
+      expect(screen.queryByRole("status")).toBeNull();
+      vi.advanceTimersByTime(5_000);
+      await waitFor(() => {
+        expect(screen.getByRole("status")).toHaveTextContent(/only streams while it is following a call/);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("parseTuneMHz", () => {
+  it("parses MHz with a decimal point or comma", () => {
+    expect(parseTuneMHz("162.55")).toBe(162_550_000);
+    expect(parseTuneMHz(" 442,3875 ")).toBe(442_387_500);
+    expect(parseTuneMHz("851")).toBe(851_000_000);
+  });
+  it("rejects anything that is not a positive frequency", () => {
+    for (const bad of ["", "abc", "-5", "0", "1e3", "16x2", "5000"]) {
+      expect(parseTuneMHz(bad)).toBeNull();
+    }
   });
 });

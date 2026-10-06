@@ -74,7 +74,11 @@ type Broker struct {
 	subBuffer   int
 	subsDropped atomic.Uint64
 
-	streamActive atomic.Bool
+	// streamActive counts the live StreamIQ sessions. A count, not a flag:
+	// sessions can overlap briefly when a new primary opens while the
+	// previous session's goroutine is still winding down, and the old one
+	// ending must not report the new one as stopped.
+	streamActive atomic.Int32
 
 	// centerHz / rateHz record the most-recent successful
 	// SetCenterFreq / SetSampleRate values. Used by the spectrum
@@ -281,12 +285,12 @@ func (b *Broker) StreamIQ(ctx context.Context) (<-chan []complex64, error) {
 	if err != nil {
 		return nil, err
 	}
-	b.streamActive.Store(true)
+	b.streamActive.Add(1)
 
 	out := make(chan []complex64, primaryHandoffDepth)
 	go func() {
 		defer close(out)
-		defer b.streamActive.Store(false)
+		defer b.streamActive.Add(-1)
 		// A panic in fanout would otherwise crash the daemon silently
 		// (issue #492); recover into a logged close so the primary
 		// consumer sees a clean stream end instead.
@@ -374,7 +378,7 @@ func (b *Broker) Stats() Stats {
 	return Stats{
 		Subscribers:  count,
 		DroppedTotal: b.subsDropped.Load(),
-		Streaming:    b.streamActive.Load(),
+		Streaming:    b.streamActive.Load() > 0,
 	}
 }
 

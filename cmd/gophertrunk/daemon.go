@@ -671,6 +671,12 @@ type Daemon struct {
 	// claim concurrently from their spawn goroutines.
 	iqPrimaryMu sync.Mutex
 	iqPrimary   map[string]bool
+	// viewerPumps holds the on-demand StreamIQ sessions the daemon drives
+	// for live viewers (spectrum, scopes, Signal Lab capture) on an SDR
+	// that no decoder streams — see acquireViewerIQ. Guarded by iqPrimaryMu
+	// so a decoder's claim and a viewer's pump can never both open the
+	// device's single-consumer stream.
+	viewerPumps map[string]*viewerPump
 	// scannerBrokers maps a conventional-scanner voice SDR's serial to the
 	// iqtap broker the scanner drives as its primary StreamIQ consumer. The
 	// composer's poolDevices consults it so a conventional (fm-conv) call's FM
@@ -2970,11 +2976,23 @@ func (d *Daemon) buildAPIServer(cfg config.Config, version string, log *slog.Log
 			TLSKey:         cfg.API.TLSKey,
 		}
 		if len(d.iqBrokers) > 0 {
-			opts.Spectrum = newSpectrumProvider(d.pool, d.iqBrokers, d.systems, log)
-			opts.Diag = newDiagProvider(d.pool, d.iqBrokers, cfg.SDR.SampleRate, log)
-			opts.Symbols = newSymbolProvider(d.pool, d.iqBrokers, cfg.SDR.SampleRate, log)
-			opts.Mixer = newMixerProvider(d.pool, d.iqBrokers, cfg.SDR.SampleRate, log)
-			opts.Capture = newCaptureProvider(d.pool, d.iqBrokers, log)
+			// Every live view goes through acquireViewerIQ so an SDR no
+			// decoder streams still produces frames while it is watched.
+			sp := newSpectrumProvider(d.pool, d.iqBrokers, d.systems, log)
+			sp.viewerIQ = d.acquireViewerIQ
+			opts.Spectrum = sp
+			dp := newDiagProvider(d.pool, d.iqBrokers, cfg.SDR.SampleRate, log)
+			dp.viewerIQ = d.acquireViewerIQ
+			opts.Diag = dp
+			syp := newSymbolProvider(d.pool, d.iqBrokers, cfg.SDR.SampleRate, log)
+			syp.viewerIQ = d.acquireViewerIQ
+			opts.Symbols = syp
+			mp := newMixerProvider(d.pool, d.iqBrokers, cfg.SDR.SampleRate, log)
+			mp.viewerIQ = d.acquireViewerIQ
+			opts.Mixer = mp
+			cp := newCaptureProvider(d.pool, d.iqBrokers, log)
+			cp.viewerIQ = d.acquireViewerIQ
+			opts.Capture = cp
 		}
 		// Event-driven raw-IQ auto-recorder (baseband.auto_record). Constructed
 		// here so the API server can expose a manual trigger; subscribed to the
@@ -4155,6 +4173,9 @@ func (d *Daemon) Close() {
 		if d.httpAPI != nil {
 			d.closeStage("http", func() { _ = d.httpAPI.Close() })
 		}
+		// Live-view IQ pumps hold their SDR's stream; stop them before the
+		// decoders and the pool tear down.
+		d.closeStage("viewer-iq", d.stopViewerPumps)
 		if d.rigctld != nil {
 			d.closeStage("rigctld", func() { _ = d.rigctld.Close() })
 		}
@@ -5617,13 +5638,25 @@ func (d *Daemon) runSingleChannelDecoder(ctx context.Context, name, serial strin
 func (d *Daemon) openSingleChannelIQ(ctx context.Context, br *iqtap.Broker, serial string) (<-chan []complex64, func(), error) {
 	d.iqPrimaryMu.Lock()
 	primary := !d.iqPrimary[serial]
+	var pump *viewerPump
 	if primary {
 		d.iqPrimary[serial] = true
+		// A live view may be streaming this idle dongle on its own
+		// (acquireViewerIQ); the decoder takes the stream over and the
+		// view keeps receiving the decoder's fan-out.
+		pump = d.takeViewerPumpLocked(serial)
 	}
 	d.iqPrimaryMu.Unlock()
 
 	if primary {
-		ch, err := br.StreamIQ(ctx)
+		var ch <-chan []complex64
+		var err error
+		if pump != nil {
+			waitViewerPump(pump)
+			ch, err = streamIQAfterPreempt(ctx, br)
+		} else {
+			ch, err = br.StreamIQ(ctx)
+		}
 		if err != nil {
 			// Release the claim so a retry (or another decoder) can drive
 			// the pump instead of wedging the serial on a dead primary.
