@@ -7,6 +7,8 @@ for tagged releases.
 
 ## [Unreleased]
 
+## [v1.2.4] — 2026-10-06
+
 ### Fixed
 - **P25 explicit-channel voice updates were followed to the band plan's base
   frequency (#1242).** Opcode 0x03 (Group Voice Channel Update – Explicit)
