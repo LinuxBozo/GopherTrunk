@@ -281,16 +281,13 @@ c.bus.Publish(events.Event{Kind: events.KindGrant, Payload: trunking.Grant{
 ```
 
 `freq` comes from `Options.Resolver` — `LinearBandPlan` or `TableBandPlan`
-in `bandplan.go`, since channel numbering is system-specific. And here is
-the gap: **`newMPT1327Pipeline` passes no `Resolver`**, and no `mpt1327_*`
-band-plan key exists, so a live GTC is published with `FrequencyHz` 0 —
-what `TestControlChannelGrantWithoutResolverHasZeroFreq` pins — and
-`Engine.HandleGrant` drops it with `dropping grant with zero frequency`.
+in `bandplan.go`. And here is the gap: **`newMPT1327Pipeline` passes no
+`Resolver`**, and no `mpt1327_*` band-plan key exists, so a live GTC is
+published with `FrequencyHz` 0 (`TestControlChannelGrantWithoutResolverHasZeroFreq`)
+and `Engine.HandleGrant` drops it with `dropping grant with zero frequency`.
 The codeword layer is complete; the follow-the-call layer is not wired.
 
 ## Where MPT 1327 stands on the ladder
-
-Three kinds of evidence exist, pinning different layers.
 
 **Synthetic, in CI.** `process_bch_test.go` feeds framing-encoded 64-bit
 codewords to `Process(BCHOn)`: `TestProcessBCHOnDecodesEncodedCodeword`

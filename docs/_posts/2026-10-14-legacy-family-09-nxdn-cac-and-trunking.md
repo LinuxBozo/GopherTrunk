@@ -48,24 +48,24 @@ lock, a topology and a grant.*
   equalizers do not model a post-discriminator channel; per-bit LLRs into a
   soft Viterbi do.
 - **An always-on AFC was tried, measured, and made opt-in.** NXDN's CAC
-  has no whitening; a zero-heavy payload encodes to long constant runs the
+  has no whitening; a zero-heavy payload encodes to constant runs the
   tracker followed, collapsing CAC CRC yield to zero on the SITE_INFO
   fixture.
 - **A grant needs a band plan, and the code says so.** Without
-  `nxdn_band_plan` a `VCALL_ASSGN` is dropped with a WARN;
-  `TestControlChannelDropsGrantWithoutBandPlan` pins it.
+  `nxdn_band_plan` a `VCALL_ASSGN` is dropped with a WARN
+  (`TestControlChannelDropsGrantWithoutBandPlan`).
 
 ## Cheat sheet
 
 | Concern | What it does | Where it lives |
 |---|---|---|
 | CAC coding | 155 info → +CRC-16 → +4 tail → K=5 R=½ → −50 puncture → 25×12 interleave → 300 bits | `internal/radio/nxdn/cac_channel.go` |
-| Modes | `ViterbiOff` 84 / `ViterbiOn` 132 / `ViterbiSpec` 158 post-sync dibits | `process.go` (`postSyncDibits*`), `control.go` (`ParseViterbiMode`) |
+| Modes | `ViterbiOff` 84 / `ViterbiOn` 132 / `ViterbiSpec` 158 post-sync dibits | `process.go`, `control.go` (`ParseViterbiMode`) |
 | Soft path | LLR pairs per dibit → `ProcessSoft` → `DecodeCACChannelSoft` | `receiver.go` (`SoftDibitSink`), `cac_channel_soft.go`, key `nxdn_soft_decision` |
 | Carrier AFC | post-clock `demod.CoarseAFC`, opt-in | `receiver.go` (`Options.EnableAFC`), key `nxdn_afc` |
 | RCCH dispatch | `SITE_INFO` → lock + topology, `CCH` → lock, `VCALL_ASSGN` → grant | `control.go` (`IngestFrame`, `publishGrant`), `cac.go` (`RCCHType`) |
 | Band plan | `LinearBandPlan` / `TableBandPlan` from `nxdn_band_plan` | `bandplan.go` (`ResolverFromPlan`) |
-| Drought guard | 2 s of signal with no CRC-clean CAC → `rx.Reset` + `cc.ResyncReset` | `ccdecoder/pipelines.go` (`nxdnPipeline`), `resyncguard.go` (`nxdnResyncWindow`) |
+| Drought guard | 2 s of signal with no CRC-clean CAC → `rx.Reset` + `cc.ResyncReset` | `ccdecoder/pipelines.go`, `resyncguard.go` (`nxdnResyncWindow`) |
 | Harness | `GT_NXDN_IQ`, `_IQ_RATE`, `_SOFT`, `_AFC`, `_ALLOW_EMPTY` | `cmd/gophertrunk/nxdn_realcapture_test.go` |
 
 ## In this post
@@ -103,9 +103,7 @@ the full chain. `ParseViterbiMode` maps the empty string and `spec` to
 (`TestSetViterbiModeRetainsViterbiOffDefault`) — the in-package discipline
 from `docs/opt-in-features.md`: the connector's `Parse*Mode` makes the
 operator default spec-correct while direct callers keep the legacy
-behaviour. `TestProcessViterbiOnRejectsRawCACFrame` and
-`TestProcessViterbiSpecRejectsHeavilyCorruptedFrame` bracket the modes from
-the failing side.
+behaviour.
 
 ## The §4.5.1.1 chain
 
@@ -114,15 +112,14 @@ the failing side.
 zeros to `CACInfoBits` = 155. A 16-bit CRC-CCITT covers those 155 bits
 (polynomial 0x1021, init 0xFFFF, evaluated bit by bit because 155 is not
 byte-aligned; `TestCACCRC16SanityAgainstByteWiseCRC` anchors it to
-`framing.CRCCCITT` on byte-aligned input). Four zero tail bits flush the
-encoder, so 175 bits enter a K = 5 rate-½ code with g1(D) = 1 + D³ + D⁴
-(0x19) and g2(D) = 1 + D + D² + D⁴ (0x17) — the SACCH's primitive —
-producing 350 bits read alternately G1, G2.
+`framing.CRCCCITT`). Four zero tail bits flush the encoder, so 175 bits
+enter a K = 5 rate-½ code with g1(D) = 1 + D³ + D⁴ (0x19) and g2(D) =
+1 + D + D² + D⁴ (0x17) — the SACCH's primitive — producing 350 bits.
 
 Then the puncture. The period-7 matrix keeps every G1 bit (`1111111`) and
 drops G2 at sub-columns 1 and 5 (`1011101`); 2 drops × 25 periods = 50
-positions, which `computeCACPuncturePositions` enumerates as `2i+1` for
-every encoder step with `i mod 7 ∈ {1,5}` (`TestCACPuncturePositionsMatchMatrix`).
+positions, enumerated by `computeCACPuncturePositions` as `2i+1` for every
+encoder step with `i mod 7 ∈ {1,5}` (`TestCACPuncturePositionsMatchMatrix`).
 350 − 50 = `CACChannelBits` = 300. Finally a 25 × 12 block interleaver,
 written row by row and read column by column:
 `channel[k] = pre[(k % 25) × 12 + (k / 25)]`
@@ -197,29 +194,27 @@ bridges to the older parser: drop the SR, pack the first 72 L3 bits — the
 CRC the 11-byte `ParseCAC` layout expects, "a no-op here" because the outer
 CRC already validated the block. `ParseCAC` yields a `CACMessage` with an
 `RCCHType` — `VCALL` 0x01, `VCALL_ASSGN` 0x04, `DCALL` 0x09, `SITE_INFO`
-0x3C, `SRV_INFO` 0x3D, `CCH` 0x3F among them.
+0x3C, `CCH` 0x3F among them.
 
 One honest note belongs here. The chain is transcribed from the spec, and
 `samples/nxdn/README.md` names what the round-trip in `process_spec_test.go`
 cannot catch: "bit-ordering / endianness mismatches against on-air
 transmitters", vendor forks that "diverge slightly in puncture index
 ordering", and the corrector's noise margin. One labelled RCCH burst closes
-all three. The
+all three — the
 [self-consistent trap]({{ '/blog/solution-postmortem/from-the-issue-tracker-20-self-consistent-trap/' | relative_url }})
-is named in the README, not discovered later.
+named in the README, not discovered later.
 
 ## The soft-decision lever
 
 `docs/protocol-feature-parity.md` records why NXDN got soft decision and not
-an equalizer. The TETRA levers that doubled yield on ISI-smeared captures
+an equalizer: the TETRA levers that doubled yield on ISI-smeared captures
 are complex linear equalizers, and after an FM discriminator "a multipath
-channel is no longer a linear complex convolution"; porting them is new
-algorithm research. The portable lever is soft-decision FEC
+channel is no longer a linear complex convolution". The portable lever is
+soft-decision FEC
 ([soft decision]({{ '/reference/soft-decision/' | relative_url }})), in
-three pieces.
-
-The receiver derives two log-likelihood ratios per dibit from the 4-level
-soft symbol, LLR > 0 ⇒ bit 0:
+three pieces. The receiver derives two log-likelihood ratios per dibit from
+the 4-level soft symbol, LLR > 0 ⇒ bit 0:
 
 ```go
 // internal/radio/nxdn/receiver/receiver.go (shape) — SoftDecision path
@@ -229,8 +224,7 @@ r.softDibitSink(r.dibits, r.llrBuf, r.dibitBase)
 ```
 
 `TestReceiverSoftDibitSinkContract` pins the contract — two LLRs per dibit,
-index-aligned, sign-consistent, the hard sink never fired — and
-`TestReceiverSoftPathMatchesHardDibits` that the dibits are the same.
+index-aligned, sign-consistent, the hard sink never fired.
 `ControlChannel.ProcessSoft` keeps the LLRs in lockstep with the frame it
 collects and falls back to the hard `Process` for any chunk where
 `len(soft) != 2*len(dibits)` — the TETRA `StashSoft` discipline.
@@ -249,15 +243,15 @@ to lock **zero** times while the soft path locks — the failing-first shape;
 `cac_channel_soft.go` comment gives the primitive-level figure: ~8× fewer
 info-bit errors where the hard path loses one bit in eleven. It ships
 **off by default** — `nxdn_soft_decision: on` in `newNXDNPipeline` and the
-widebandt2 NXDN tap alike — under the posture TETRA's `tetra_traffic_lms`
-shipped: a synthetic gain is a reason to ship a lever; only an operator's
-capture A/B is a reason to pull it by default.
+widebandt2 tap alike — under the posture TETRA's `tetra_traffic_lms`
+shipped: a synthetic gain ships a lever; only an operator's capture A/B
+pulls it by default.
 
 ## Why `nxdn_afc` is off
 
 The other port from the DMR receiver is the post-clock `CoarseAFC` of
 issue #836 — subtract the DC bias a tuner's ppm error leaves on the
-discriminator. DMR and P25 run it always-on. NXDN runs it only with
+discriminator. DMR and P25 run it always-on; NXDN runs it only with
 `nxdn_afc: on`, and the receiver's `Options.EnableAFC` comment is the
 finding: NXDN's CAC carries **no air-interface whitening**, so a zero-heavy
 L3 payload convolutionally encodes to long constant-dibit runs, and "the
@@ -270,7 +264,7 @@ path is pinned the other way: `TestReceiverIsCarrierOffsetInvariant`
 rotates a balanced 600-dibit stream by 400 Hz and requires ≥ 0.95 agreement
 with the unrotated decode; the DMR port measured ~0.99 collapsing to ~0.79
 without the stage. The parity doc's conclusion: turn it on for a rig with a
-real tuner error; a default change needs a real mistuned NXDN capture and
+real tuner error; a default change needs a mistuned NXDN capture and
 "likely the P25-style decision-directed pairing".
 
 ## From RCCH message to grant
@@ -279,7 +273,7 @@ real tuner error; a default change needs a real mistuned NXDN capture and
 `CACMessage`, stamps `lastActivityNano`, bumps `framesDecoded`, and
 dispatches. `SITE_INFO` parses LocationID, SiteID and SystemID, feeds the
 `topologyModel` (first non-zero value wins) and locks with a `LockState`
-whose `LockedNAC` is the SiteID. `CCH` locks with identity empty.
+whose `LockedNAC` is the SiteID; `CCH` locks with identity empty;
 `VCALL_ASSGN` becomes a grant:
 
 ```go
@@ -303,25 +297,22 @@ NXDN's resolver *is* wired: `newNXDNPipeline` calls
 `nxdn_band_plan` takes one of `linear` (`base_hz`, `spacing_hz`, `offset` —
 `offset: 1` for sites numbering from channel 1, so `TestLinearBandPlanResolves`
 maps channel 1 → 461.000 MHz and 2 → 461.0125 at 12.5 kHz) or `table`
-(`channel` / `freq_hz` entries). Without it the channel locks, decodes and
-warns per grant. `VCallAssignPayload`'s comment keeps the ladder honest: the
+(`channel` / `freq_hz`). Without it the channel locks, decodes and warns
+per grant. `VCallAssignPayload`'s comment keeps the ladder honest: the
 offsets "match the common Type-C trunked variant" and "are structural and
 not yet validated against an on-air capture".
-`TestControlChannelEmitsGrantOnVCallAssign` and
-`TestControlChannelDropsGrantWithoutBandPlan` pin the two branches.
 
 `LastActivityNano` is the heartbeat the pipeline's `resyncGuard` compares
 across chunks: after `nxdnResyncWindow` = 2 s of *processed signal* — "≈ 25
-missed frames" of an RCCH carrying a CAC every 80 ms — with no CRC-clean
-decode, `nxdnPipeline.Process` calls `rx.Reset()` and `cc.ResyncReset()`
-and logs `nxdn: dsp resync (signal-time decode drought; reacquiring from
-centre)`. The window counts samples, not wall clock, so a starved goroutine
-cannot trip it, and `ResyncReset` exists because `Process` keys on absolute
-dibit indices — a receiver reset under a stale mid-frame countdown would
-splice pre- and post-reset dibits into one garbage frame. The widebandt2
-NXDN tap wraps the same guard as a `droughtGuardReceiver`, and
-`DecodedFrames` is the counter the engine uses to gate per-channel power
-logging — CLAUDE.md's rule that decode evidence outranks absolute dBFS.
+missed frames" — with no CRC-clean decode, `nxdnPipeline.Process` calls
+`rx.Reset()` and `cc.ResyncReset()` and logs `nxdn: dsp resync (signal-time
+decode drought; reacquiring from centre)`. The window counts samples, not
+wall clock, so a starved goroutine cannot trip it, and `ResyncReset` exists
+because `Process` keys on absolute dibit indices — a receiver reset under a
+stale mid-frame countdown would splice pre- and post-reset dibits into one
+garbage frame. The widebandt2 NXDN tap wraps the same guard as a
+`droughtGuardReceiver`, and `DecodedFrames` is the counter the engine uses
+to gate per-channel power logging.
 
 ## The harness and the rung
 
@@ -329,30 +320,25 @@ logging — CLAUDE.md's rule that decode evidence outranks absolute dBFS.
 `TestDMRIPSCReplay`, written for a file that does not exist. `GT_NXDN_IQ`
 points at a cs16 capture, `GT_NXDN_IQ_RATE` gives its rate (default
 48 000); the test builds `ccdecoder.NewDownconverter(inRate, 48000)` as the
-daemon does, constructs the production receiver at 1800 Hz, and feeds every
-dibit batch to two consumers: the `ControlChannel` in `ViterbiSpec` (locks
-and grants) and a standalone FSW/CAC slicer counting `fsw_hits`,
-`cac_total`, `cac_crc_ok`, `cac_parsed` and a histogram of RCCH types.
-`GT_NXDN_SOFT=1` adds `cac_crc_ok_soft` off the same stream — the opt-in's
-A/B metric; `GT_NXDN_AFC=1` enables the AFC; zero FSW hits fail with
-"check GT_NXDN_IQ_RATE / tuning / capture" unless `GT_NXDN_ALLOW_EMPTY=1`
-downgrades it to a weak-signal baseline.
-
-Above it sits the daemon gate from Part 8, `TestDaemonCCDecodesNXDNRealAir`,
-skip-guarded on a `*.cfile` + `*.metadata.json` pair in `samples/nxdn/`,
-asserting `LockState` against the sidecar's `system_id`, `site_id` and
-`center_freq_hz` (RAN parsed, not yet asserted). The bar from
-`docs/decoder-capture-needs.md`: ≥ 80 % CAC bursts CRC-OK, byte-matched
-identity, lock under 3 s, and no BFSK.
+daemon does, runs the production receiver at 1800 Hz, and feeds every dibit
+batch to the `ControlChannel` in `ViterbiSpec` (locks and grants) and to a
+standalone FSW/CAC slicer counting `fsw_hits`, `cac_total`, `cac_crc_ok`,
+`cac_parsed` and a histogram of RCCH types. `GT_NXDN_SOFT=1` adds
+`cac_crc_ok_soft` off the same stream — the opt-in's A/B metric;
+`GT_NXDN_AFC=1` enables the AFC; zero FSW hits fail with "check
+GT_NXDN_IQ_RATE / tuning / capture" unless `GT_NXDN_ALLOW_EMPTY=1`
+downgrades it to a weak-signal baseline. Above it sits Part 8's daemon
+gate, `TestDaemonCCDecodesNXDNRealAir`, asserting `LockState` against a
+`samples/nxdn/` sidecar's `system_id`, `site_id` and `center_freq_hz`.
 
 So the rung for everything here is **capture-gated**: the chain is
-spec-transcribed and synthetic-verified, the soft lever is
-synthetic-measured and shipped off, the AFC is synthetic-measured and
-shipped off for a reason, the state machine and band plan are unit-tested,
-and the two harnesses that would move any of it are waiting. The parity
-doc's list of what was deliberately *not* changed — "NXDN voice
-deinterleave / scramble / CAC structural changes. All flagged UNVERIFIED ON
-AIR placeholders; capture-gated" — is the same sentence from the other side.
+spec-transcribed and synthetic-verified, the soft lever synthetic-measured
+and shipped off, the AFC synthetic-measured and shipped off for a reason,
+the state machine and band plan unit-tested, and the two harnesses that
+would move any of it waiting. The parity doc's list of what was
+deliberately *not* changed — "NXDN voice deinterleave / scramble / CAC
+structural changes. All flagged UNVERIFIED ON AIR placeholders;
+capture-gated" — is the same sentence from the other side.
 
 ### How the CAC shaped the Go code
 
@@ -404,14 +390,6 @@ A `VCALL_ASSGN` carries a traffic-channel number, not a frequency.
 `table` block per system — and without a plan, or for a channel outside it,
 logs a WARN and publishes nothing, because a grant with no frequency cannot
 be followed.
-
-**What is the NXDN resync guard?**
-A signal-time decode-drought watchdog: `nxdnPipeline.Process` counts
-processed samples since the last CRC-clean CAC and, after `nxdnResyncWindow`
-= 2 s of real signal with none, resets the receiver and the control
-channel's sync state (`ResyncReset`) to reacquire from centre. It counts
-samples rather than wall clock so CPU starvation can never discard a good
-lock.
 
 ## Series navigation
 

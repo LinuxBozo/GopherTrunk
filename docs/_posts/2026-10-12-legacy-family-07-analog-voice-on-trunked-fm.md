@@ -190,13 +190,12 @@ e.bus.Publish(events.Event{Kind: events.KindCallStart, Payload: CallStart{
 e.applyEncryptedPolicy(d.Serial, g, g.Encrypted)
 ```
 
-The published `CallStart` carries `ac.Grant`, not the caller's copy,
-because `Bind` stamped the fresh `CallID`. `applyEncryptedPolicy` honours
-the `Encrypted` flag an EDACS CCW's status nibble or a SmartNet OSW
-carries, so `skip_encrypted` applies to analog trunking too, with nothing
-to decrypt. And an EDACS grant carries `ProVoice` from `CmdProVoiceGrant`;
-the engine ignores it, the composer reads it next, and the recorder forces
-a `.raw` sidecar for it, since no in-binary Aegis / ProVoice decoder exists.
+The published `CallStart` carries `ac.Grant` because `Bind` stamped the
+fresh `CallID`. `applyEncryptedPolicy` honours the `Encrypted` flag an
+EDACS CCW or SmartNet OSW carries, so `skip_encrypted` applies to analog
+trunking too. An EDACS grant also carries `ProVoice`; the engine ignores
+it, the composer reads it next, and the recorder forces a `.raw` sidecar,
+since no in-binary Aegis / ProVoice decoder exists.
 
 ## Inside `runFMChain`
 
@@ -224,34 +223,28 @@ drift.
 The chain
 [Voice Coding Part 9]({{ '/blog/deep-dives/voice-coding-09-the-composer/' | relative_url }})
 sketched has grown stages since, each from a conventional-FM field report.
-In order: **front-end decimation** —
-`newDecimatingFIR(iqHz, 48_000, c.bw, true)`, an 81-tap Kaiser low-pass at
-`VoiceBandwidthHz` (12 500) convolving only at output positions, 2.4 MS/s
-down to the 48 kHz intermediate rate; an optional **channel filter** —
-`newFMChannelFilter`, a second 81-tap complex low-pass at 48 kHz, ±half of
-`fm_channel_bandwidth_hz`, because at 2.4 MS/s an 81-tap FIR has a ~100 kHz
-transition band and cannot separate a 12.5 kHz channel from its neighbour,
-while at 48 kHz it is 2–3 kHz sharp (`TestFMChannelFilterSelectivity`,
-#1184, which also pins that the digital chains' `c.bw` is untouched); an
-optional **CMA equalizer** (`recordings.equalizer.enabled`, R² = 1 for a
-constant-modulus carrier); **`demod.FM`**; two cascaded Butterworth
+In order: **front-end decimation** — `newDecimatingFIR(iqHz, 48_000, c.bw,
+true)`, an 81-tap Kaiser low-pass at `VoiceBandwidthHz` (12 500), 2.4 MS/s
+down to 48 kHz; an optional **channel filter** — `newFMChannelFilter`, a
+second 81-tap complex low-pass at 48 kHz, ±half of
+`fm_channel_bandwidth_hz`, because at 2.4 MS/s an 81-tap FIR cannot
+separate a 12.5 kHz channel from its neighbour while at 48 kHz it is
+2–3 kHz sharp (`TestFMChannelFilterSelectivity`, #1184); an optional **CMA
+equalizer** (`recordings.equalizer.enabled`); **`demod.FM`**; two cascaded
 **high-pass** biquads at `fm_audio_highpass_hz` (300), stripping a carrier
-offset's DC and the 67–250 Hz CTCSS/DCS tones *before* de-emphasis so the
-integrator never sees the DC (`TestComposerFMChainHighPassRemovesDC`);
-**de-emphasis** (`fm_deemphasis`: `us` 75 µs default, `eu`, `off`); the
-**audio low-pass** (`fm_audio_lowpass_hz` 3400); **AGC** after it; and
-**decimation to PCM** by 6, or the opt-in polyphase `AudioResampler`, into
-`c.sink.WritePCM(serial, pcm)`.
+offset's DC and the CTCSS/DCS tones *before* de-emphasis
+(`TestComposerFMChainHighPassRemovesDC`); **de-emphasis** (`fm_deemphasis`:
+`us` 75 µs default, `eu`, `off`); the **audio low-pass**
+(`fm_audio_lowpass_hz` 3400); **AGC**; and **decimation to PCM** by 6, or
+the opt-in polyphase `AudioResampler`, into `c.sink.WritePCM(serial, pcm)`.
 
 Two details are trunked-analog-specific. `WritePCM` carries no `CallID`
-fence because an analog chain keys on a stable physical serial, torn down
-on `CallEnd` before the next `CallStart`. And the #1090 squelch gate —
-freeze the AGC and fade to silence while the scanner reports the channel
-closed — asks `squelch.SquelchOpen(serial)` and **leaves the chain ungated
-on `ok = false`**, which is what every analog-trunk chain gets: no
-scanner-side decision exists for a trunked tap.
-`TestComposerFMChainIgnoresSquelchWithoutDecision` names that case —
-"Motorola/LTR/MPT 1327 voice".
+fence because an analog chain keys on a stable physical serial. And the
+#1090 squelch gate — freeze the AGC and fade to silence while the scanner
+reports the channel closed — asks `squelch.SquelchOpen(serial)` and
+**leaves the chain ungated on `ok = false`**, which is what every
+analog-trunk chain gets: no scanner-side decision exists for a trunked tap
+(`TestComposerFMChainIgnoresSquelchWithoutDecision`).
 
 ## Ending a call nobody signals
 
@@ -275,22 +268,20 @@ keep a call alive by heartbeat. Above it, `runWatchdog` fires at
 The chain's own comment states the consequence: analog FM "emits PCM
 continuously, so in practice the engine's grant lifecycle / watchdog bounds
 the call". While IQ flows, PCM flows — discriminator noise after the
-carrier drops is still PCM — so `onVoice` keeps firing and neither hangtime
-nor the watchdog elapses. What ends a trunked analog call on a live system
-is the engine: a grant that retunes or rebinds the device, pool preemption,
-or `EndCall` from the API. Nothing quiets an analog-trunk tap on carrier
-loss; the noise-quieting squelch CLAUDE.md names for the conventional
-scanner — the `dmrrx.carrierGate` idea from
+carrier drops is still PCM — so neither hangtime nor the watchdog elapses.
+What ends a trunked analog call live is the engine: a grant that retunes or
+rebinds the device, pool preemption, or `EndCall` from the API. Nothing
+quiets an analog-trunk tap on carrier loss; the noise-quieting squelch
+CLAUDE.md names for the conventional scanner — the `dmrrx.carrierGate` idea
+from
 [DMR End to End Part 9]({{ '/blog/deep-dives/dmr-end-to-end-09-direct-mode-carrier-gate/' | relative_url }})
 — is "not built" there either. Nor does the FM chain ever call
-`bt.onTransmissionEnd()` (only the P25 Phase 1 chain does), so
-`voice_call_grouping: transmission` has no over boundary to roll on and an
-analog call is one file, as
-[Recording, Composition & Streaming Part 3]({{ '/blog/deep-dives/recording-streaming-03-assembling-a-call/' | relative_url }})
-explained from the recorder's side. When the end comes, `handleEnd`
-cancels the chain and blocks on `done`; `emitTail` writes a 10 ms fade so
-the cut does not click (`TestComposerTailFadeOnCallEnd`); only then does
-the recorder get the drain-complete signal that finalizes the file.
+`bt.onTransmissionEnd()`, so `voice_call_grouping: transmission` has no
+over boundary to roll on and an analog call is one file
+([Recording, Composition & Streaming Part 3]({{ '/blog/deep-dives/recording-streaming-03-assembling-a-call/' | relative_url }})).
+When the end comes, `handleEnd` cancels the chain and blocks on `done`;
+`emitTail` writes a 10 ms fade so the cut does not click
+(`TestComposerTailFadeOnCallEnd`); only then is the file finalized.
 
 ## The recorder's side, and the rung
 
@@ -306,25 +297,22 @@ ProVoice. `CallComplete`, the call-log row and streaming are protocol-blind.
 The composer half is **pinned in CI**:
 `TestComposerRunsFMChainForAnalogTrunking`,
 `TestComposerBypassesEDACSProVoice`, and the stage tests from
-conventional-FM field reports — `TestFMChannelFilterSelectivity`,
+conventional-FM field reports (`TestFMChannelFilterSelectivity`,
 `TestComposerFMChainHighPassRemovesDC`,
-`TestComposerFMChainMutesSquelchClosedTail`, `TestComposerTailFadeOnCallEnd`.
-The FM chain is in daily use under the conventional scanner, where those
-reporters' captures are real-air fixtures
-([From the Issue Tracker Part 16]({{ '/blog/solution-postmortem/from-the-issue-tracker-16-conventional-fm-broker/' | relative_url }})
-tells that path's story).
+`TestComposerFMChainMutesSquelchClosedTail`). The FM chain is in daily use
+under the conventional scanner, where those reporters' captures are
+real-air fixtures
+([From the Issue Tracker Part 16]({{ '/blog/solution-postmortem/from-the-issue-tracker-16-conventional-fm-broker/' | relative_url }})).
 
-The trunked half is **on-air unverified for all four**, for different
-reasons. Motorola's grants reach the engine with hertz, so its whole path —
-OSW decode, plan, bind, chain, WAV — is one #1143 capture away
+The trunked half is **on-air unverified for all four**. Motorola's grants
+reach the engine with hertz, so its whole path is one #1143 capture away
 ([Part 3]({{ '/blog/deep-dives/legacy-family-03-smartnet-air-interface/' | relative_url }})).
 EDACS, LTR and MPT 1327 cannot reach the engine until a resolver is wired
-through their factories and a config key names it; their composer path is
-verified only with a grant the test filled in by hand. `status.md`'s
-sentence — "Analog FM trunking (Motorola Type II, EDACS, LTR, MPT 1327)
-decodes voice through the composer's FM chain" — is true of the composer
-and silent about the gap in front of it. A green composer test is not a
-followed call.
+and a config key names it; their composer path is verified only with a
+grant the test filled in by hand. `status.md`'s "Analog FM trunking
+(Motorola Type II, EDACS, LTR, MPT 1327) decodes voice through the
+composer's FM chain" is true of the composer and silent about the gap in
+front of it. A green composer test is not a followed call.
 
 ### How analog trunking shaped the Go code
 

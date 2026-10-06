@@ -40,11 +40,10 @@ frame of real air it could decode.*
 **Key takeaways**
 
 - **NXDN is the P25 Phase 1 modulation with different framing.** Same
-  4800 sym/s 4FSK, α = 0.20, 1800 Hz deviation and Gray mapping; the
-  matched-filter parameters carry over unchanged.
-- **The slicer is only as right as its deviation.** `slicerScale =
-  2π·DeviationHz/Fs`; a transmitter at 2400 Hz read at 1800 pushes the inner
-  ±1 symbols over the outer threshold, and the NXDN96 sample shows it.
+  4800 sym/s 4FSK, α = 0.20, 1800 Hz deviation and Gray mapping.
+- **The slicer is only as right as its deviation.** A transmitter at
+  2400 Hz read at 1800 pushes the inner ±1 symbols over the outer
+  threshold, and the NXDN96 sample shows it.
 - **The AGC corrects the matched filter, not the air.** Unit-energy RRC
   overshoots a rectangular stream ~3.1×; without it inner symbols collapse
   onto the outer rails while the sync still matches.
@@ -56,19 +55,19 @@ frame of real air it could decode.*
 
 | Concern | What it does | Where it lives |
 |---|---|---|
-| Receiver | FM → RRC(α 0.20, span 8) → MM(10 sps, gain 0.05) → [AFC] → AGC → slice → Gray dibits | `internal/radio/nxdn/receiver/receiver.go` |
+| Receiver | FM → RRC(α 0.20, span 8) → MM(10 sps) → [AFC] → AGC → slice → Gray dibits | `internal/radio/nxdn/receiver/receiver.go` |
 | Slicer calibration | `slicerScale = 2π·DeviationHz/Fs`; default 1800 Hz; `nxdn_deviation_hz` overrides | `receiver.go` (`Options.DeviationHz`), `ccdecoder/pipelines.go` |
 | Symbol AGC | `C4FMSymbolAGC{Target: C4FMAGCTarget(scale, dev), Rate: 1/256}` | `receiver.go`, `receiver/agc_test.go` |
 | Frame sync | `FSWOutboundHex` 0xC55A / `FSWInboundHex` 0x3AA5, 8 dibits, tolerance 1 | `sync.go` (`SyncDetector`, `Match.Inbound`) |
-| Frame | 192 dibits / 80 ms: FSW 8 · LICH 8 · SACCH 32 · Info 144 | `frame.go` (`FrameDibits`, `OffsetInfo`) |
+| Frame | 192 dibits / 80 ms: FSW 8 · LICH 8 · SACCH 32 · Info 144 | `frame.go` (`FrameDibits`) |
 | LICH | 8 info bits × 2 on the wire, majority vote, even parity | `lich.go` (`DecodeLICHWire`, `ParseLICH`) |
-| Scrambler | 15-bit LFSR x¹⁵ + x¹⁴ + 1, key 0..32767, synthetic model | `scramble.go` (`Scrambler`, `ScramblerKeyMax`) |
+| Scrambler | 15-bit LFSR x¹⁵ + x¹⁴ + 1, key 0..32767, synthetic model | `scramble.go` (`Scrambler`) |
 | Scope | `nxdn` receiver at `nxdnDeviationHz` 1800, no AFC | `internal/scanner/symbolscope/scope.go` |
 
 ## In this post
 
 - **Two channel rates, one receiver** — NXDN48, NXDN96, and which one the code decodes.
-- **From IQ to dibits** — the chain, the calibrated slicer and the AGC that made real captures sliceable.
+- **From IQ to dibits** — the calibrated slicer and the AGC that made real captures sliceable.
 - **Frame sync and the 80 ms frame** — direction-specific FSWs and the 192-dibit layout.
 - **The LICH** — eight bits sent twice, and the bit that routes the frame.
 - **The scrambler model** — a 15-bit LFSR the code refuses to call confirmed.
@@ -80,17 +79,17 @@ NXDN ([reference]({{ '/reference/nxdn/' | relative_url }})) runs at one of
 two channel rates, and `frame.go` names both: `Rate4800` — BFSK, one bit
 per symbol, the 6.25 kHz "NXDN48" — and `Rate9600` — 4-FSK, one dibit per
 symbol at 4800 symbols per second, the 12.5 kHz "NXDN96". The logical frame
-is identical; only the symbol mapping differs. GopherTrunk's receiver
-decodes **one** of them. `receiver.go`'s first sentence says which: the
-9600-baud 4-FSK variant, "the most common deployment; the 4800-baud BFSK
-variant uses a 2-level slicer and lives in a follow-up", and
-`docs/protocol-feature-parity.md` keeps that follow-up in its backlog as
-"a second demod variant against a frame layout still unverified on air".
+is identical; only the symbol mapping differs. GopherTrunk decodes **one**
+of them. `receiver.go`'s first sentence says which: the 9600-baud 4-FSK
+variant, "the most common deployment; the 4800-baud BFSK variant uses a
+2-level slicer and lives in a follow-up", which
+`docs/protocol-feature-parity.md` keeps in its backlog as "a second demod
+variant against a frame layout still unverified on air".
 `newNXDNPipeline` constructs the control channel with `nxdn.Rate9600`.
 
 [Protocol Decoders Part 6]({{ '/blog/deep-dives/protocol-decoders-06-nxdn-dpmr/' | relative_url }})
-drew the frame and the CAC chain structurally; this part stays below the
-frame, and
+drew the frame and CAC chain structurally; this part stays below the frame,
+and
 [Part 9]({{ '/blog/deep-dives/legacy-family-09-nxdn-cac-and-trunking/' | relative_url }})
 takes the CAC coding and the trunking state machine.
 
@@ -126,19 +125,18 @@ discriminator's output is a phase increment per sample, so a ±3 symbol
 sits at `2π·1800/48000` rad per sample, and `demod.NewC4FM(sps, span,
 alpha, slicerScale)` places its thresholds at that physical level instead
 of the legacy ±1. `newNXDNPipeline` passes 1800 Hz — the Common Air
-Interface value — unless `nxdn_deviation_hz` is set, and `DeviationHz <= 0`
+Interface value — unless `nxdn_deviation_hz` is set; `DeviationHz <= 0`
 keeps `slicerScale` 1.0 so pre-scaled fixtures stay byte-identical
 (`TestReceiverLegacyFixturePathUnchanged`).
 
 Second, the **symbol AGC**, whose test comment is the clearest statement of
 the field failure. The RRC matched filter is normalised to unit *energy*,
-giving a DC gain of about 3.1; a real transmitter's symbols are
-rectangular, so the matched filter's centres land ~3.1× above the slicer's
-thresholds, inner ±1 symbols cross the outer `2·deviation/3` boundary and
-slice as ±3, and every payload fails while the coarser FSW still matches —
-"the control channel locks then decodes nothing". `C4FMSymbolAGC`
-renormalises the running mean |x| to the level a balanced 4-level stream
-should sit at (`C4FMAGCTarget(slicerScale, DeviationHz)`, rate 1/256), the
+about 3.1× DC gain; a real transmitter's symbols are rectangular, so the
+matched filter's centres land ~3.1× above the slicer's thresholds, inner ±1
+symbols cross the outer `2·deviation/3` boundary and slice as ±3, and every
+payload fails while the coarser FSW still matches — "the control channel
+locks then decodes nothing". `C4FMSymbolAGC` renormalises the running
+mean |x| to `C4FMAGCTarget(slicerScale, DeviationHz)` at rate 1/256, the
 calibration the P25 Phase 1 and DMR receivers run from issue #275.
 `TestReceiverDecodesOverScaledC4FM` pins it with `makeRunC4FMIQ`, a
 rectangular stream holding each symbol in a run so the eye is free of ISI:
@@ -148,17 +146,17 @@ Third, the **optional AFC**, built only when `EnableAFC && DeviationHz > 0`:
 `demod.NewCoarseAFC(1)` on the post-clock symbol stream, the DMR #836
 design
 ([DMR End to End Part 9]({{ '/blog/deep-dives/dmr-end-to-end-09-direct-mode-carrier-gate/' | relative_url }})).
-It is off by default for a reason that belongs to the CAC and waits for
-Part 9; here it is enough that it runs before the AGC so the level
-normalisation sees a centred eye, and that
-`TestReceiverIsCarrierOffsetInvariant` pins the flag-on path: a 400 Hz
-offset must leave ≥ 0.95 of dibits agreeing with the zero-offset decode.
+Why it is off by default belongs to the CAC and waits for Part 9; here it
+is enough that it runs before the AGC so the level normalisation sees a
+centred eye, and that `TestReceiverIsCarrierOffsetInvariant` pins the
+flag-on path: a 400 Hz offset must leave ≥ 0.95 of dibits agreeing with the
+zero-offset decode.
 
-`SymbolToDibit` is the family's Gray mapping, and
-`TestSymbolToDibitMatchesP25Phase1Convention` pins it so "a future spec
-re-read doesn't silently desync from the FSW patterns in the parent nxdn
-package" — the self-consistent trap named in advance: the FSW constants and
-the mapping were written together, and a capture confirms both.
+`SymbolToDibit` is the family's Gray mapping, pinned by
+`TestSymbolToDibitMatchesP25Phase1Convention` so "a future spec re-read
+doesn't silently desync from the FSW patterns" — the self-consistent trap
+named in advance: the FSW constants and the mapping were written together,
+and a capture confirms both.
 
 <figure class="lab-figure">
 <svg viewBox="0 0 680 180" width="680" height="180" role="img" aria-label="The NXDN receiver chain as a row of stages: IQ, FM discriminator, RRC matched filter at alpha 0.20 and span 8, Mueller-Muller timing at 10 samples per symbol, an optional dashed CoarseAFC stage labelled nxdn_afc off by default, the symbol AGC at rate one over 256, the four-level slicer with thresholds at plus and minus two thirds of the slicer scale, and SymbolToDibit. Below the slicer a small eye diagram shows four levels at plus three, plus one, minus one and minus three with the thresholds between them, and a note that the NXDN96 sample slices bimodal at 3, 50, 3 and 44 percent against a spec-ideal 25 percent each.">
@@ -204,9 +202,8 @@ the mapping were written together, and a capture confirms both.
   <line x1="420" y1="133" x2="640" y2="133" stroke="var(--accent)" stroke-dasharray="3 3"/>
   <line x1="420" y1="155" x2="640" y2="155" stroke="var(--accent)" stroke-dasharray="3 3"/>
   <text x="200" y="112" fill="currentColor" font-size="8" font-weight="bold">s = 2π · 1800 / 48000 rad/sample</text>
-  <text x="200" y="128" fill="var(--fg-muted)" font-size="8">nxdn_deviation_hz moves s; a 2400 Hz transmitter read</text>
-  <text x="200" y="140" fill="var(--fg-muted)" font-size="8">at 1800 pushes ±1 past ±2s/3 → bimodal dibits</text>
-  <text x="200" y="160" fill="var(--fg-muted)" font-size="8">NXDN96 IQ.wav: 3 / 50 / 3 / 44 % · spec-ideal: 25 % each</text>
+  <text x="200" y="128" fill="var(--fg-muted)" font-size="8">a 2400 Hz transmitter read at 1800 pushes ±1 past ±2s/3</text>
+  <text x="200" y="146" fill="var(--fg-muted)" font-size="8">NXDN96 IQ.wav: 3 / 50 / 3 / 44 % · spec-ideal: 25 % each</text>
 </svg>
 <figcaption>The chain and its one calibrated number. The slicer's thresholds sit at ±2/3 of a scale derived from the configured deviation; the AGC keeps the matched-filter output at that scale, and a wrong deviation shows up as a lopsided histogram, not a missing sync.</figcaption>
 </figure>
@@ -216,16 +213,15 @@ the mapping were written together, and a capture confirms both.
 The Frame Sync Word is 16 bits — 8 dibits — and direction-specific
 ([FSW reference]({{ '/reference/nxdn-fsw/' | relative_url }})):
 `FSWOutboundHex` 0xC55A base-to-mobile, `FSWInboundHex` 0x3AA5
-mobile-to-base, decomposed by `hexToDibits`. The constants' comment is
-candid about provenance: they "match the most commonly cited values in
-public reference implementations" and "should be cross-checked against the
-published technical document before live captures". `nxdn.SyncDetector`
-slides an 8-dibit ring, scores every configured pattern, and emits
-`Match{Index, Inbound}` when the best is within tolerance
-(`TestSyncDetectorTolerates1Error`, `TestSyncDetectorRejectsTooManyErrors`).
-`ControlChannel.Process` and the voice path's `TrafficChannel` both build it
-with the outbound pattern only, tolerance 1; `Inbound` exists so a caller
-configuring both patterns can ignore uplink bursts.
+mobile-to-base. The constants' comment is candid about provenance: they
+"match the most commonly cited values in public reference implementations"
+and "should be cross-checked against the published technical document
+before live captures". `nxdn.SyncDetector` slides an 8-dibit ring, scores
+every configured pattern, and emits `Match{Index, Inbound}` when the best is
+within tolerance (`TestSyncDetectorTolerates1Error`,
+`TestSyncDetectorRejectsTooManyErrors`). `ControlChannel.Process` and the
+voice path's `TrafficChannel` both build it with the outbound pattern only,
+tolerance 1.
 
 ```go
 // internal/radio/nxdn/frame.go
@@ -241,8 +237,8 @@ const (
 
 192 dibits at 4800 symbols per second is exactly 80 ms
 ([frame structure]({{ '/reference/nxdn-frame-structure/' | relative_url }});
-`TestFrameLayoutSumsCorrectly`). That layout is the traffic (RDCH) shape.
-The control channel's outbound frame has the same length and a different
+`TestFrameLayoutSumsCorrectly`). That is the traffic (RDCH) shape. The
+control channel's outbound frame has the same length and a different
 interior — per NXDN-TS-1-A §4.6, FSW 20 bits + LICH 16 + CAC 300 + E 24 +
 Post 24 = 384 — so the CAC occupies what a traffic frame spends on SACCH and
 most of the Info field. That is why `process.go`'s spec path collects
@@ -259,8 +255,8 @@ place NXDN's coding philosophy shows
 ([LICH reference]({{ '/reference/nxdn-lich/' | relative_url }})). Eight
 information bits: RFCT (0 = RCCH control, 1 = RDCH traffic), two bits of
 Function Channel Type, two Option bits, a reserved zero, Direction, and even
-parity over the first seven. On the wire every bit is sent twice, so eight
-become sixteen, and the decoder is a majority vote per pair:
+parity over the first seven. On the wire every bit is sent twice, and the
+decoder is a majority vote per pair:
 
 ```go
 // internal/radio/nxdn/lich.go (shape)
@@ -275,25 +271,23 @@ func DecodeLICHWire(wire []byte) (byte, int) {
 ```
 
 A disagreeing pair can only be flagged — two copies have no majority — so
-`DecodeLICHWire` returns the count and `ParseLICH` then checks parity
+`DecodeLICHWire` returns the count and `ParseLICH` checks parity
 (`TestLICHWireMajorityOnSingleErr`, `TestLICHParityDetectsSingleError`).
 The control channel drops any frame whose LICH fails parity or is not
 `RFChControl` (`TestControlChannelIgnoresBadParity`,
 `TestControlChannelIgnoresTrafficLICH`); the traffic channel keeps only
 `RFChTraffic`. That bit is the FDMA analogue of DMR's slot type, and even on
-Part 9's soft-decision path the LICH is decoded hard, because, as
-`tryIngestFrameSoft` says, "its (16, 8) wire code is trivially strong at
-any SNR where the FSW correlates".
+Part 9's soft-decision path the LICH is decoded hard — "its (16, 8) wire
+code is trivially strong at any SNR where the FSW correlates".
 
 ## The scrambler model
 
 NXDN's optional "encryption" is a scrambler
 ([reference]({{ '/reference/nxdn-scrambler/' | relative_url }})): a
-keystream XORed over the information field, generated by a 15-bit LFSR
-seeded with a 15-bit key. Key 0 is clear; the key space is 2¹⁵ = 32 768,
-which is why the comment calls it "trivially brute-forceable" and points at
-the offline cryptolab tool that uses this primitive with the frame CRCs as
-an oracle:
+keystream XORed over the information field, from a 15-bit LFSR seeded with
+a 15-bit key. Key 0 is clear; the key space is 2¹⁵ = 32 768, which is why
+the comment calls it "trivially brute-forceable" and points at the offline
+cryptolab tool that uses this primitive with the frame CRCs as an oracle:
 
 ```go
 // internal/radio/nxdn/scramble.go (shape)
@@ -308,67 +302,63 @@ func (s *Scrambler) Next() byte {
 
 Then the file says what the code is: "IMPLEMENTATION NOTE — synthetic
 model, not yet hardware-confirmed." The tap polynomial and seed mapping are
-"an internally-consistent working model" — a maximal-length Fibonacci LFSR
-with a balanced m-sequence of period 32 767
-(`TestKeystreamIsBalancedMSequence`), self-inverse under XOR
-(`TestScrambleRoundTrip`), clear at key 0 (`TestScrambleKeyZeroIsClear`) —
-and "when such a capture is available, adjust the feedback in
-`(*Scrambler).Next` and the golden expectations in scramble_test.go; nothing
-else depends on this choice." The XOR structure and key width are the
-spec-level facts; the polynomial is a placeholder with a test that will have
-to change — the posture the voice placeholders of Part 13 share.
+"an internally-consistent working model" — a maximal-length LFSR with a
+balanced m-sequence of period 32 767 (`TestKeystreamIsBalancedMSequence`),
+self-inverse under XOR (`TestScrambleRoundTrip`), clear at key 0
+(`TestScrambleKeyZeroIsClear`) — and "when such a capture is available,
+adjust the feedback in `(*Scrambler).Next` and the golden expectations in
+scramble_test.go; nothing else depends on this choice." The XOR structure
+and key width are the spec-level facts; the polynomial is a placeholder
+with a test that will have to change — the posture the voice placeholders
+of Part 13 share.
 
 ## Taps, scope and the two WAVs
 
 The receiver carries the diagnostic surface the DMR and P25 receivers
-have, added in the pass `docs/protocol-feature-parity.md` records.
-`SoftSink` receives the post-AFC/AGC one-sample-per-symbol soft track,
-index-aligned with the dibit batch; `EyeSink` the oversampled matched
-buffer scaled by that batch's AGC gain and recentred by the AFC offset so
-the rails line up; `SymbolSink` is kept for parity and never fires, since
-pure C4FM has no complex symbol domain (`TestReceiverEmitsSoftAndEyeTaps`,
-`TestReceiverTapsDoNotAlterDecode`). `AGCLevel`, `AGCTarget`, `MMClockMu`
-and `MMClockSPS` feed the Tuning panel. `internal/scanner/symbolscope`
-builds an `nxdn` receiver at `nxdnDeviationHz` 1800 with the same taps, so
-an NXDN rig's panels open the right receiver — the `symbol_proto` lesson
-CLAUDE.md records from a TETRA rig graded "poor" by a foreign one. The
-scope's receiver runs no AFC and reports `CarrierOffsetHz` 0, because even
-enabled it reads through the RRC's scale mismatch — "exactly the DMR
-posture".
+have, added in the pass `docs/protocol-feature-parity.md` records:
+`SoftSink` (the post-AFC/AGC soft track, index-aligned with the dibit
+batch), `EyeSink` (the oversampled matched buffer scaled by the AGC gain
+and recentred by the AFC offset), and a `SymbolSink` kept for parity that
+never fires, since pure C4FM has no complex symbol domain
+(`TestReceiverEmitsSoftAndEyeTaps`, `TestReceiverTapsDoNotAlterDecode`).
+`internal/scanner/symbolscope` builds an `nxdn` receiver at
+`nxdnDeviationHz` 1800 with the same taps, so an NXDN rig's panels open the
+right receiver — the `symbol_proto` lesson CLAUDE.md records from a TETRA
+rig graded "poor" by a foreign one. The scope's receiver runs no AFC and
+reports `CarrierOffsetHz` 0 — "exactly the DMR posture".
 
-Which brings the rung. Every test above is synthetic: `makePhaseRampIQ`
-cycles the four symbols, `makeRunC4FMIQ` holds them in runs,
-`makeC4FMIQWithOffset` rotates the buffer, and `TestDaemonCCDecodesNXDN`
+Which brings the rung. Every test above is synthetic — `makePhaseRampIQ`,
+`makeRunC4FMIQ`, `makeC4FMIQWithOffset` — and `TestDaemonCCDecodesNXDN`
 boots the daemon on `demod.ModulateC4FM` output at 851.0625 MHz, 48 kHz,
-1800 Hz, twenty spec-encoded frames. The receiver has never decoded a
-frame of real air. The two captures in `samples/nxdn/` are real IQ, and
+1800 Hz, twenty spec-encoded frames. The receiver has never decoded a frame
+of real air. The two captures in `samples/nxdn/` are real IQ, and
 `samples/README.md` records what the chain makes of them through
 `samples/cmd/audio_smoketest` (`-protocol nxdn` runs its IQ path):
 `NXDN48 IQ.wav` slices to a balanced 26 / 27 / 15 / 32 % and finds **no
 FSW** — "likely 4800-bps BFSK rather than 9600 4-FSK", the variant the
 receiver lacks; `NXDN96 IQ.wav` slices **bimodal, 3 / 50 / 3 / 44 %** —
-"consistent with a different deviation than the spec value". That second
-number is why `nxdn_deviation_hz` exists: `samples/nxdn/README.md` says
-non-spec transmitters "land between 2200 and 2700 Hz" and gives the recipe —
-print the dibit distribution, sweep the key until it flattens toward
+"consistent with a different deviation than the spec value". That number
+is why `nxdn_deviation_hz` exists: `samples/nxdn/README.md` says non-spec
+transmitters "land between 2200 and 2700 Hz" and gives the recipe — print
+the dibit distribution and sweep the key until it flattens toward
 25 / 25 / 25 / 25 %. Nobody has yet reported the value that flattens that
 file.
 
 `docs/decoder-capture-needs.md` files NXDN in **Tier 1 — blocking**: an
-outbound RCCH `.cfile` at ≥ 48 kHz, ≥ 5 s, with an MMDVMHost log or DSDcc
-as cross-check, passing at ≥ 80 % CRC-OK CAC bursts, a byte-match on
-SystemID / SiteID / RAN, and lock within 3 s. The harness is written:
+outbound RCCH `.cfile` at ≥ 48 kHz, ≥ 5 s, cross-checked against an
+MMDVMHost log or DSDcc, passing at ≥ 80 % CRC-OK CAC bursts, a byte-match
+on SystemID / SiteID / RAN, and lock within 3 s. The harness is written:
 `TestDaemonCCDecodesNXDNRealAir` skips until one `*.cfile` +
 `*.metadata.json` pair lands in `samples/nxdn/`, then boots
 `newNXDNPipeline` against it and asserts `LockState` against the sidecar.
-Until then, NXDN's physical layer stands on the ladder's lowest real rung:
+Until then NXDN's physical layer stands on the lowest real rung:
 **reference-shaped, synthetic-verified, with two real captures that prove
 only what it cannot yet do.**
 
 ### How NXDN's physical layer shaped the Go code
 
 - **Calibration is opt-in by value.** `DeviationHz <= 0` keeps
-  `slicerScale` 1.0 and disables the AGC, so every pre-scaled fixture is
+  `slicerScale` 1.0 and disables the AGC; pre-scaled fixtures stay
   byte-identical.
 - **Taps are nil-safe and never alter the decode.**
   `TestReceiverTapsDoNotAlterDecode` pins the dibit stream either way.
@@ -381,9 +371,8 @@ only what it cannot yet do.**
 ## Where this goes next
 
 Dibits are not a control channel. The 150 dibits after an outbound LICH
-carry 300 channel bits that must be deinterleaved 25 × 12, depunctured
-50 / 350, Viterbi-decoded at K = 5 and CRC-checked before a single RCCH
-message exists.
+carry 300 channel bits that must be deinterleaved, depunctured,
+Viterbi-decoded and CRC-checked before a single RCCH message exists.
 [Part 9]({{ '/blog/deep-dives/legacy-family-09-nxdn-cac-and-trunking/' | relative_url }})
 walks that chain, the three `ViterbiMode`s, the soft-decision lever that
 lifts CAC CRC yield from 26/200 to 151/200 on the synthetic channel, and the
@@ -393,10 +382,9 @@ data-mean drift that keeps `nxdn_afc` off by default.
 
 **Which NXDN variant does GopherTrunk decode?**
 The 9600 bps 4-FSK variant (NXDN96, 12.5 kHz): `newNXDNPipeline` uses
-`nxdn.Rate9600` and `internal/radio/nxdn/receiver` is a 4-level C4FM chain.
-The 4800 bps BFSK variant (NXDN48) needs a 2-level receiver that is a
-documented follow-up — which is why the committed `NXDN48 IQ.wav` finds no
-FSW.
+`nxdn.Rate9600` and the receiver is a 4-level C4FM chain. The 4800 bps BFSK
+variant (NXDN48) needs a 2-level receiver that is a documented follow-up —
+which is why the committed `NXDN48 IQ.wav` finds no FSW.
 
 **What does `nxdn_deviation_hz` change?**
 The slicer's calibration: `slicerScale = 2π·DeviationHz/SampleRateHz`, with
@@ -410,14 +398,7 @@ Because its RRC matched filter is normalised to unit energy, about 3.1× DC
 gain on the rectangular symbols a real transmitter sends. The eye then sits
 ~3.1× above the fixed thresholds, inner ±1 symbols slice as ±3, and payloads
 fail while the FSW still matches. `demod.C4FMSymbolAGC` renormalises the
-level; `TestReceiverDecodesOverScaledC4FM` pins it.
-
-**How is the NXDN LICH decoded?**
-Its 8 information bits are each transmitted twice. `DecodeLICHWire`
-majority-votes each pair of the 16 wire bits (a disagreement is counted,
-not resolved) and `ParseLICH` checks even parity over bits 0–6. The RF
-channel-type bit routes the frame: `RFChControl` to the CAC parser,
-`RFChTraffic` to the voice path.
+level.
 
 **Is the NXDN scrambler implementation confirmed?**
 No. `scramble.go` models it as a maximal-length 15-bit Fibonacci LFSR with
