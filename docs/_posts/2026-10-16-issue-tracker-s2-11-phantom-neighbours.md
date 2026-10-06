@@ -30,9 +30,9 @@ that put them there.*
 > to the block end instead of the MAC length indication, so fill bits became
 > phantom optional fields; the reassembly had no continuity check, so a
 > MAC-END spliced onto any stale start fragment; and three holes let a chain
-> survive a lost block — a half-decoded control slot counted as recovered,
-> `DecodeAACH` classified garbage as "traffic", and the adjacency window was
-> four frames with no slot-grid check. Now: `fragMaxGapDibits` (two frames),
+> survive a lost block: a half-decoded control slot counted as recovered,
+> `DecodeAACH` classified garbage as "traffic", and adjacency was four
+> frames with no slot-grid check. Now: `fragMaxGapDibits` (two frames),
 > `onChainSlotGrid`, `aachClassifyMaxErrs` = 2, ≥ 8 trailing bits rejects
 > the broadcast, an implausible cell distrusts the whole list
 > (`plausibleNeighbourCell`), and `neighbourExpiry` = 30 min. Pinned by a
@@ -43,7 +43,7 @@ that put them there.*
 
 - **Confirm-twice cannot catch deterministic corruption.** A splice or a
   leaked tail repeats bit-identically on every rebroadcast, so a gate that
-  waits for the same content twice promotes the garbage with the truth.
+  waits for the same content twice promotes garbage with truth.
 - **A parser that reads a fixed prefix never notices a bad boundary.**
   Every other L3 parser tolerated bits leaking past the PDU; the one with
   trailing presence bits turned them into fields.
@@ -59,7 +59,7 @@ that put them there.*
 | Concern | What it does | Where it lives |
 |---|---|---|
 | Neighbour broadcast parse | decodes D-NWRK-BROADCAST; rejects ≥ 8 trailing bits | `internal/radio/tetra/mle_parse.go` (`ParseDNwrkBroadcast`) |
-| Fragment payload seams | strips type/subtype/fill/length/flags per osmo-tetra `rx_macfrag`/`rx_macend` | `internal/radio/tetra/mac.go` (`macFragmentPayload`, `tmSDU`, `stripFillBits`) |
+| Fragment payload seams | strips header fields per osmo-tetra `rx_macfrag`/`rx_macend` | `internal/radio/tetra/mac.go` (`macFragmentPayload`, `tmSDU`, `stripFillBits`) |
 | Chain continuity | two frames + slot grid between pieces | `control.go` (`fragMaxGapDibits`, `onChainSlotGrid`, `fragChainAdjacentLocked`) |
 | Lost-block detection | per-block, with a trusted AACH only | `downlink.go` (`decodeDownlinkSlot`, `aachClassifyMaxErrs` = 2) |
 | Whole-list distrust | one implausible cell drops the broadcast, logs `tl_sdu_hex` | `control.go` (`learnNeighbourCells`, `plausibleNeighbourCell`) |
@@ -110,18 +110,18 @@ again. Single-block PDUs were unaffected, so everything else on the
 carrier looked fine; only a fragmented L3 PDU corrupts, from the seam
 onward. With the layouts pinned against osmo-tetra, the parser went live
 behind a confirm-twice gate (`neighboursPending`): the 6-bit PD+type
-check is thin enough that a corrupted-but-CRC-passing TL-SDU can parse
-plausibly, and a one-shot version surfaced 18 "neighbours" on the
-capture. The repeating 8 were real — carriers 467.99–470.00 MHz, LAs
+check is thin enough that a corrupted-but-CRC-passing TL-SDU parses
+plausibly, and a one-shot version surfaced 18 "neighbours". The
+repeating 8 were real — carriers 467.99–470.00 MHz, LAs
 1021–1089 — and `TestTETRANeighbourReportReplay` became the on-air harness.
 
 ## A neighbour at 1.5 GHz
 
-The follow-up report, in the operator's words, was "totally bogus entries
-in the neighbours list, like a 1.5 GHz one". Those entries had confirmed
-twice. That is the tell: the corruption was **deterministic**, so the
-confirm-twice gate was structurally unable to help. Two more MAC boundary
-holes were behind it.
+The follow-up report, in the operator's words: "totally bogus entries in
+the neighbours list, like a 1.5 GHz one". Those entries had confirmed
+twice — the tell that the corruption was **deterministic**, so the
+confirm-twice gate could not help. Two more MAC boundary holes were
+behind it.
 
 First, `tmSDU` and `macFragmentPayload` handed everything up to the
 **block** end to Layer 3. The MAC length indication — the PDU's own length
@@ -181,9 +181,8 @@ still unknown. The hex dump found it one day later, with no new capture.
 The operator's 10.4 h log held 11 rejected dumps. Decoded by hand, every
 one is the **real cell list** — cells 9, 10, 11 … as 57-bit elements,
 perfect — that mid-cell jumps back to another copy of the same list.
-Identical substrings repeat inside one TL-SDU, and every dump left 15–388
-trailing bits after a "complete" list, where a genuine broadcast ends
-within a fill run of under 8 bits. The mechanism: a mis-continued
+Every dump left 15–388 trailing bits after a "complete" list, where a
+genuine broadcast ends within a fill run of under 8 bits. The mechanism: a mis-continued
 reassembly **splicing two transmissions** of the rotating broadcast.
 Bogus sites that had looked plausible — `mnc=1021`, `mnc=1032`, the real
 cells' LAs shifted into the MNC field — were the same splices confirming
@@ -192,8 +191,8 @@ twice, because the loss pattern repeats with the broadcast schedule.
 Three holes let a chain survive the losses that set a splice up:
 
 1. **A control slot with one decoded SCH/HD half counted as recovered.**
-   On an AACH-confirmed control slot both halves carry signalling (stealing
-   exists only on traffic slots), so the failed half *is* a lost block.
+   On an AACH-confirmed control slot both halves carry signalling, so the
+   failed half *is* a lost block.
    "Lost" is now per block: `slotFullyRecovered := fullOK || (half1OK && half2OK)`.
 2. **`DecodeAACH` is a maximum-likelihood search that always returns the
    nearest RM(30,14) codeword.** Its `errs` is the Hamming distance; garbage
@@ -236,12 +235,12 @@ Three holes let a chain survive the losses that set a splice up:
   <text x="340" y="196" text-anchor="middle" fill="var(--accent)" font-size="8">lost control slot on the grid → abandonFragment · 3 frames late → stale</text>
   <text x="340" y="214" text-anchor="middle" fill="currentColor" font-size="8">fragMaxGapDibits = 2046 · onChainSlotGrid · aachClassifyMaxErrs = 2</text>
 </svg>
-<figcaption>Transmission A loses its MAC-END; B's arrives three frames later inside the old window and the two halves parse as one broadcast. The new rule abandons A at the lost slot and refuses B as stale.</figcaption>
+<figcaption>A loses its MAC-END; B's arrives three frames later inside the old window and the halves parse as one broadcast. The new rule abandons A at the lost slot and refuses B as stale.</figcaption>
 </figure>
 
 Two layers sit behind those. `ParseDNwrkBroadcast` rejects **≥ 8
-trailing bits** after the neighbour list — killing the whole splice class
-even if a new hole appears — and logs the same `tl_sdu_hex`
+trailing bits** after the neighbour list — the whole splice class, even
+through a new hole — and logs the same `tl_sdu_hex`
 (`tetra: rejecting misframed d-nwrk-broadcast`). And neighbours **expire**
 after `neighbourExpiry` (30 min) without re-advertisement, aged only
 across *accepted* broadcasts so a CC outage expires nothing.
@@ -292,7 +291,7 @@ raw, their bit maps un-named until a capture confirms them.
 - **Positions are stamped before any block decodes.** `curSlotPos` is set
   at the top of `decodeDownlinkSlot` so every check sees the same grid.
 - **Rejections carry their evidence.** Every reject path logs
-  `packBitsHex(tl)`, which is how the root cause was found from a log alone.
+  `packBitsHex(tl)` — how the root cause was found from a log alone.
 
 ## Where this goes next
 
@@ -322,10 +321,10 @@ counts the rate.
 
 **Why is an AACH decode only trusted at two or fewer errors?**
 `DecodeAACH` is a maximum-likelihood search over RM(30,14) that always
-returns the nearest codeword; the returned error count is that codeword's
-Hamming distance. Garbage typically lands at distance 4–6, so an
-unconfident decode is a coin-flip control/traffic classification.
-`aachClassifyMaxErrs` = 2 keeps the chance of garbage passing near 0.7 %.
+returns the nearest codeword, and its error count is that codeword's
+Hamming distance. Garbage lands at distance 4–6, so an unconfident decode
+is a coin-flip classification. `aachClassifyMaxErrs` = 2 keeps the chance
+of garbage passing near 0.7 %.
 
 **How is the fix verified on air?**
 A literal TL-SDU from the operator's 4 Sep log is committed as

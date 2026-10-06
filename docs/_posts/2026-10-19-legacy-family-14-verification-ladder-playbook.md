@@ -98,8 +98,8 @@ names the middle precisely, because the legacy family mostly lives there:
 - **On-air verified.** A live run on a real rig, confirmed by the
   operator, as the issue-closing policy requires.
 
-A protocol can sit on different rungs for its control channel and its
-voice; the table keeps them apart.
+A protocol can sit on different rungs for control and voice; the table
+keeps them apart.
 
 ## The table
 
@@ -173,7 +173,7 @@ ready — tops `decoder-capture-needs.md`'s priority list.
 ## Recording a capture
 
 `gophertrunk capture` opens an SDR directly, outside the daemon's pool,
-and records raw IQ plus the sidecar the rest of the tooling reads:
+and records raw IQ plus the sidecar the tooling reads:
 
 ```text
 gophertrunk capture -freq 851062500 -sample-rate 2400000 -seconds 30 \
@@ -185,8 +185,7 @@ gophertrunk capture -freq 851062500 -sample-rate 2400000 -seconds 30 \
 `-center`/`-bandwidth` carve a narrowband slice through the same
 `ccdecoder.Downconverter` the daemon uses, so a 50 kHz slice of a
 2.4 MS/s grab is a small, shareable file; `-centers` records several
-sample-synchronous slices. The command then reports what a replay would otherwise discover
-too late: `captureEffectiveRate` stamps the sidecar with the rate the
+sample-synchronous slices. The command then reports what a replay would discover too late: `captureEffectiveRate` stamps the sidecar with the rate the
 hardware actually delivered; the carrier-offset consensus prints the
 measured offset and warns above `carrierOffsetWarnHz` (2000 Hz);
 `formatClipWarning` flags ADC-rail clipping; a dropped-chunk count warns
@@ -217,8 +216,7 @@ and `protocol` is what lets `gophertrunk test` build a pipeline:
 
 `expected` is `siglab.Acceptance`: `lock`, `lock_latency_max_sec`,
 `lock_fields` (hex-tolerant, matched as a subset), `min_grants`,
-`baud_tolerance_pct`, `max_decode_error_rate`, `max_evm_pct`,
-`min_snr_db`. `gophertrunk test -capture nxdn-cc.raw` discovers the
+`max_decode_error_rate`, `max_evm_pct`, `min_snr_db`. `gophertrunk test -capture nxdn-cc.raw` discovers the
 sidecar, runs `siglab.Run` through the production pipeline, prints a
 verdict, and exits 1 on failure — so a corpus of captures is a CI gate.
 
@@ -275,16 +273,15 @@ exist yet.
 
 ### How the ladder shaped the Go code
 
-- **Harnesses skip loudly.** `t.Skipf` names the directory and the pair
-  it wants; CI stays green and the ask stays visible.
+- **Harnesses skip loudly.** `t.Skipf` names the pair it wants; CI stays
+  green and the ask stays visible.
 - **Placeholders are functions, not comments.** One named function per
   unknown, inverse in lock-step, so the capture-driven swap is minimal.
 - **Instruments before captures.** `GT_NXDN_*` knobs, offset and clip
   lines on `capture`, per-frame Golay counts — built so the first file
   answers a question on arrival.
 - **Sidecars over filenames.** `sample_rate_hz` and `center_freq_hz`
-  travel with the file; a capture labelled with the wrong rate replays
-  with a shifted symbol clock.
+  travel with the file; a wrong rate replays with a shifted symbol clock.
 
 ## FAQ
 
@@ -297,8 +294,8 @@ no FICH or voice live. The top rung needs a reporter's run on a real rig.
 
 **How do I record an IQ capture GopherTrunk can replay?**
 Use `gophertrunk capture -freq <hz> -seconds <n> -out <file> -protocol
-<name>`, optionally `-center`/`-bandwidth` for a small narrowband slice
-and `-format cs16` or `flac`. It writes `<stem>.metadata.json` with the
+<name>`, with `-center`/`-bandwidth` for a small narrowband slice and
+`-format cs16` or `flac`. It writes `<stem>.metadata.json` with the
 actual sample rate and centre, and prints the measured carrier offset,
 any ADC clipping and any dropped chunks before you leave the site.
 

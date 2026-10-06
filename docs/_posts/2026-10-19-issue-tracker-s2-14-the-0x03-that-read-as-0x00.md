@@ -160,7 +160,7 @@ talkgroup from a nonexistent radio.
   <text x="340" y="166" text-anchor="middle" fill="var(--accent)" font-size="8">fix: dl = p[2:4], ul = p[4:6], group = p[6:8]; the grant follows dl</text>
   <text x="340" y="186" text-anchor="middle" fill="var(--fg-muted)" font-size="8">reporter's site: dl 0-80 → 450 000 000 + 80 × 6250 = 450 500 000 Hz; old read → 450 000 000 Hz (−63 dBFS, empty)</text>
 </svg>
-<figcaption>Same first byte, different everything else. The 0x00 parser's channel read lands on the reserved byte, which is why every grant resolved to the base frequency.</figcaption>
+<figcaption>Same first byte, different everything else: the 0x00 channel read lands on the reserved byte, so every grant resolved to the base.</figcaption>
 </figure>
 
 The fix (`b1b4a48`, PR #1243) gives 0x03 its own type and parser and
@@ -192,12 +192,11 @@ to its own inverse.
 
 ## Pinning it with bits, not round-trips
 
-Two tests landed with the fix, and neither is a round-trip. The parser
-test uses `tsbkBits`, the helper the unit-signalling parsers already
-relied on: it takes `(start, width, value)` triples in TSBK bit
-coordinates, lays them into a 96-bit frame MSB first, and packs bits
-16–79 into the eight payload bytes — an encoder with nothing in common
-with any `Assemble*` function:
+Two tests landed with the fix; neither is a round-trip. The parser test
+uses `tsbkBits`, the helper the unit-signalling parsers already relied
+on: `(start, width, value)` triples in TSBK bit coordinates, laid into a
+96-bit frame MSB first, bits 16–79 packed into the eight payload bytes —
+an encoder with nothing in common with any `Assemble*` function:
 
 ```go
 // internal/radio/p25/phase1/opcodes_explicit_test.go

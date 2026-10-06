@@ -37,11 +37,10 @@ this part does not retell it. It reads the bits.*
 > `plan.IsChannel` accepts *is* a channel; `0x308`/`0x30B` open two-word
 > sequences, `0x2F8` is idle. `motorola_band_plan` selects
 > `800_standard` (851.0125 MHz + 25 kHz × ch), `800_rebanded`,
-> `800_splinter` or `900` (935.0125 MHz + 12.5 kHz × ch). The DDC runs at
-> **18 kHz** (5 samples/symbol) and a 0.1 s DC tracker removes the
-> slicer bias of a few hundred hertz of offset. Every constant is pinned
-> to an OP25 or trunk-recorder literal; no real capture has decoded yet.
-> Rung: **reference-pinned**.
+> `800_splinter` or `900`. The DDC runs at **18 kHz** (5 samples/symbol)
+> with a 0.1 s DC tracker. Every constant is pinned to an OP25 or
+> trunk-recorder literal; no real capture has decoded yet. Rung:
+> **reference-pinned**.
 
 **Key takeaways**
 
@@ -149,14 +148,13 @@ wire bit 40 (sequence position 10, pair 5's info) and expects `flips == 1`;
 bit, a pattern the pairwise syndrome miscorrects, and expects the CRC to
 refuse rather than a wrong OSW.
 
-The first 37 corrected bits are 27 data bits followed by a CRC-10. The
-CRC is a register port of `rx_smartnet.cc crc_check` — `crcInit 0x0393`,
-`crcOp 0x036E`, `crcPoly 0x0225`, stepped once per data bit and XORed
-into the accumulator when the bit is set — and it is computed over the
-data *as it appears on the wire, still inverted*. Everything in the data
-is inverted: the received CRC field is complemented bit by bit before
-comparison, and the fields come out through XOR masks that are the
-complements of OP25's `ID_XOR 0x33C7` and `CMD_XOR 0x32A`:
+The first 37 corrected bits are 27 data bits followed by a CRC-10, a
+register port of `rx_smartnet.cc crc_check` — `crcInit 0x0393`, `crcOp
+0x036E`, `crcPoly 0x0225`, stepped once per data bit — computed over the
+data *as it appears on the wire, still inverted*. The received CRC field
+is complemented before comparison, and the fields come out through XOR
+masks that are the complements of OP25's `ID_XOR 0x33C7` and `CMD_XOR
+0x32A`:
 
 ```go
 Address: addr ^ idXORMask,       // idXORMask  = ^0x33C7 = 0xCC38
@@ -197,7 +195,7 @@ it.
   <text x="305" y="176" text-anchor="middle" fill="var(--fg-muted)" font-size="8">crc10: init 0x0393 · op 0x036E · poly 0x0225, over the 27 still-inverted data bits</text>
   <text x="305" y="194" text-anchor="middle" fill="currentColor" font-size="9" font-weight="bold">27-bit OSW — no opcode field; a command inside the band plan IS a channel</text>
 </svg>
-<figcaption>One SmartNet frame from sync to OSW. Every transform cites an OP25 function; every constant is pinned by a literal test rather than a round-trip.</figcaption>
+<figcaption>One SmartNet frame from sync to OSW; every constant is pinned by a literal test, not a round-trip.</figcaption>
 </figure>
 
 ## The OSW and its sequencer
@@ -249,8 +247,7 @@ and `TestGrantSourceMemoryFollowsNewTalker`.
 `is_chan`, in integer hertz. `ParseBandPlan` accepts `""`, `800`,
 `800_standard` or `800_domestic` for the default; `800_reband` or
 `800_rebanded`; `800_splinter`; and `900`. An unknown name returns the
-standard plan with `ok=false`, which the factory warn-logs as
-`unrecognised motorola_band_plan; falling back to 800_standard`.
+standard plan with `ok=false`, which the factory warn-logs.
 
 The 800 MHz plans share their upper segments and differ below:
 
@@ -359,8 +356,8 @@ one, pinned by `TestProcessRequiresBracketSync`.
 **What does motorola_band_plan select, and what happens with a wrong plan?**
 `ParseBandPlan` maps it to `800_standard` (851.0125 MHz + 25 kHz × ch),
 `800_rebanded`, `800_splinter` or `900` (935.0125 MHz + 12.5 kHz × ch).
-With no grant opcode, the plan's `IsChannel` is what recognises a grant
-at all; an unknown name falls back to `800_standard` with a WARN.
+With no grant opcode, `IsChannel` is what recognises a grant at all; an
+unknown name falls back to `800_standard` with a WARN.
 
 **Is GopherTrunk's SmartNet decoder verified on a real system?**
 No. It is reference-pinned: sync bits, interleave permutation, XOR masks

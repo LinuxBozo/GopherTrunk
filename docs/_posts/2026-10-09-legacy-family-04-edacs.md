@@ -47,9 +47,8 @@ the decoder actually stands on.*
 - **One word, two readings.** Under `BCHOff` the 40 bits are five
   fields; under `BCHOn` the low 11-bit `Aux` and the LCN's low bit are
   parity, and only 28 bits are data.
-- **The BCH is the only on-wire FEC.** The package doc records that an
-  earlier claim of an interleaved Reed-Solomon layer above it "was a
-  documentation error."
+- **The BCH is the only on-wire FEC.** The package doc calls an earlier
+  claim of a Reed-Solomon layer above it "a documentation error."
 - **A lock works; a follow does not.** The control channel locks on a
   system ID and decodes grants, but with no resolver wired the grant
   carries no frequency, and `HandleGrant` logs `dropping grant with
@@ -69,16 +68,16 @@ the decoder actually stands on.*
 | Commands | `CmdIdle` 0x0 … `CmdEncryption` 0x9, `CmdReserved` 0xF; `IsKnown` | `opcodes.go` |
 | Grant flags | `IsEncrypted` Status bit 0, `IsEmergency` bit 1, `ProVoice` from `CmdProVoiceGrant` | `opcodes.go` (`AsGroupVoiceGrant`) |
 | LCN → Hz | `LinearBandPlan{BaseHz, SpacingHz, Offset}`, `TableBandPlan` — unwired in production | `bandplan.go`, `ccdecoder/pipelines.go` (`newEDACSPipeline`) |
-| Receiver | FM → `demod.GFSK` matched filter (BT 0.3, span 4) → Mueller-Müller → `gfsk.Slice` | `receiver/receiver.go` |
+| Receiver | FM → `demod.GFSK` matched filter (BT 0.3) → Mueller-Müller → `gfsk.Slice` | `receiver/receiver.go` |
 
 ## In this post
 
-- **The control channel on the wire** — 9600 baud, BT 0.3, and a sync the code calls best-effort.
-- **Two readings of 40 bits** — the legacy fields and the BCH codeword.
-- **BCH(40,28,2) in practice** — the generator, the syndrome table, the 780 pairs.
-- **Commands, grants and topology** — what `Ingest` acts on and what it only names.
+- **The control channel on the wire** — 9600 baud, BT 0.3, a best-effort sync.
+- **Two readings of 40 bits** — legacy fields and the BCH codeword.
+- **BCH(40,28,2) in practice** — generator, syndrome table, 780 pairs.
+- **Commands, grants and topology** — what `Ingest` acts on.
 - **The LCN map that stops short** — resolvers in the package, none in the factory.
-- **Strict tests, ProVoice and the rung** — what is pinned and what is deferred.
+- **Strict tests, ProVoice and the rung** — pinned and deferred.
 
 ## The control channel on the wire
 
@@ -125,9 +124,9 @@ v := cmd<<36 | status<<32 | addr<<16 | lcn<<11 | aux
 
 That is the `BCHOff` reading, "useful only for synthesized test fixtures
 whose codewords are not BCH-protected" per the `BCHMode` doc, and the
-in-package zero-value default so unit fixtures stay simple.
-`TestCCWAssembleParseRoundTrip` and `TestCCWFromBitsRoundTrip` cover it —
-round-trips, which prove consistency and nothing more.
+in-package zero-value default. `TestCCWAssembleParseRoundTrip` and
+`TestCCWFromBitsRoundTrip` cover it — round-trips, which prove
+consistency and nothing more.
 
 Under `BCHOn`, the production default, the same 40 bits are a shortened
 BCH codeword: "info at bits 12..39 high; 12-bit BCH parity at bits
@@ -180,7 +179,7 @@ default mode.
   <text x="564" y="152" text-anchor="middle" fill="var(--fg-muted)" font-size="8">Aux and LCN bit 0 are parity, not data</text>
   <text x="340" y="178" text-anchor="middle" fill="currentColor" font-size="9">g(x) = x¹² + x¹⁰ + x⁸ + x⁵ + x⁴ + x³ + 1 = 0x1539 · corrects t = 2 errors per word · errs = −1 ⇒ word dropped</text>
 </svg>
-<figcaption>The same 40 bits under the two modes. The default mode trades the Aux field and one LCN bit for twelve parity bits and two correctable errors per word.</figcaption>
+<figcaption>The same 40 bits under the two modes: the default trades Aux and one LCN bit for twelve parity bits and two correctable errors.</figcaption>
 </figure>
 
 ## BCH(40,28,2) in practice
@@ -277,23 +276,22 @@ type TableBandPlan map[uint8]uint32
 ```
 
 `TestLinearBandPlan` checks LCN 10 on an 851.000 MHz / 25 kHz plan →
-851.250 MHz and that zero spacing or a negative index errors;
-`TestControlChannelPublishesGrant` wires a `LinearBandPlan{866_000_000,
-25_000}` and expects LCN 8 to resolve to 866.200 MHz. In the package,
-the map works.
+851.250 MHz; `TestControlChannelPublishesGrant` wires a
+`LinearBandPlan{866_000_000, 25_000}` and expects LCN 8 at 866.200 MHz.
+In the package, the map works.
 
 In the daemon it is never built. `newEDACSPipeline` constructs
 `edacs.New(edacs.Options{Bus, Log, SystemName, FrequencyHz})` — no
-`Resolver` — and `config.go` has no `edacs_band_plan` key to populate
-one from; `trunking.System` carries `DMRBandPlan` and `NXDNBandPlan` but
-no EDACS mirror. `publishGrant` then emits `FrequencyHz: 0`, which
-`TestControlChannelGrantWithoutResolverHasZeroFreq` pins as the intended
-package behaviour, and `Engine.HandleGrant`'s first check logs
-`dropping grant with zero frequency` and returns. The chain therefore
-locks on a live EDACS site and publishes grants the engine refuses to
-follow. `TestDaemonCCDecodesEDACS` asserts lock only. The fix has a
-template — `dmr_band_plan`'s config section, `trunking` mirror and
-`tier3.ResolverFromPlan` — and no EDACS instance of it exists yet.
+`Resolver` — and `config.go` has no `edacs_band_plan` key; `trunking.System`
+carries `DMRBandPlan` and `NXDNBandPlan` but no EDACS mirror.
+`publishGrant` then emits `FrequencyHz: 0`, which
+`TestControlChannelGrantWithoutResolverHasZeroFreq` pins as the package
+behaviour, and `Engine.HandleGrant`'s first check logs `dropping grant
+with zero frequency` and returns. The chain therefore locks on a live
+EDACS site and publishes grants the engine refuses to follow.
+`TestDaemonCCDecodesEDACS` asserts lock only. The fix has a template —
+`dmr_band_plan`'s config section, `trunking` mirror and
+`tier3.ResolverFromPlan` — and no EDACS instance of it exists.
 
 ## Strict tests, ProVoice and the rung
 
@@ -302,11 +300,10 @@ template — `dmr_band_plan`'s config section, `trunking` mirror and
 `SetStrictValidation(true)` and expects silence,
 `TestStrictValidationKeepsKnownCommand` sends a voice grant and expects
 one, and `TestCommandIsKnownCoversAllConstants` checks the eleven known
-values and the five unknown ones. As Part 2 noted, nothing in
-production calls `SetStrictValidation`; with `BCHOn` the block code is
-the gate, and a word that survives t = 2 correction with an unallocated
-command is passed through to `Ingest`, which simply does nothing with
-it.
+values and the five unknown. As Part 2 noted, nothing in production
+calls `SetStrictValidation`; with `BCHOn` the block code is the gate,
+and a corrected word with an unallocated command reaches `Ingest`,
+which does nothing with it.
 
 ProVoice is the voice gap. A `CmdProVoiceGrant` publishes with
 `ProVoice: true`; the composer's `classifyVoiceKind` sends an EDACS
@@ -367,9 +364,9 @@ chain.
 **Is the EDACS decoder verified on air?**
 No. The BCH(40,28,2) generator `0x1539` is reference-pinned to
 `edacs-fm`'s `bch3.h` and exhaustively tested; the sync word and field
-layout are labelled best-effort in `sync.go` and `ccw.go`. The
-integration test synthesises its own IQ. A clean control-channel capture
-with a known system ID is the step that moves it.
+layout are labelled best-effort in `sync.go` and `ccw.go`. A clean
+control-channel capture with a known system ID is the step that moves
+it.
 
 ## Series navigation
 

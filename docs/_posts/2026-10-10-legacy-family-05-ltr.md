@@ -29,12 +29,11 @@ exercises.*
 > `GroupID`, 5-bit `Free`, 12-bit `FCS` (`status.go`). The receiver is
 > FM → a 101-tap Kaiser low-pass at 300 Hz → Mueller-Müller at 300 baud
 > (160 samples/symbol at 48 kHz) → zero slicer. `ControlChannel.Process`
-> optionally Manchester-decodes (`ltr_manchester_mode`, default
-> `ManchesterSoft`), then aligns on a `1` with room for 41 bits. `Ingest`
-> verifies a **CRC-7** over a 24-bit message (`ltr_fcs_mode`, default
-> `FCSOn`, table copied from sdrtrunk's `CRCLTR.java`), locks on the
-> first valid word — `LockState{FrequencyHz, Area, Repeater}`,
-> `LockedNAC` = `Area<<8 | Repeater` — and publishes a grant when
+> Manchester-decodes (`ltr_manchester_mode`, default `ManchesterSoft`),
+> then aligns on a `1` with room for 41 bits. `Ingest` verifies a
+> **CRC-7** over a 24-bit message (`ltr_fcs_mode`, default `FCSOn`,
+> table copied from sdrtrunk's `CRCLTR.java`), locks on the first valid
+> word — `LockedNAC` = `Area<<8 | Repeater` — and publishes a grant when
 > `IsActive()` (`Group && GroupID != 0`), de-duplicated by `activeGroup`.
 > `newLTRPipeline` wires no `Resolver` and no `Area`, so grants carry
 > `FrequencyHz: 0` and the engine drops them. `TestDaemonCCDecodesLTR`
@@ -72,39 +71,35 @@ exercises.*
 
 ## In this post
 
-- **A system with no control channel** — what the package models, and what "locked" means.
-- **The 41-bit status word** — the layout, its semantics, and its caveat.
+- **A system with no control channel** — what "locked" means here.
+- **The 41-bit status word** — layout, semantics, caveat.
 - **The sub-audible receiver and the Manchester modes** — 300 Hz, 300 baud, three decoders.
-- **The FCS** — 24 bits under a CRC-7, and the layout tension the code documents.
+- **The FCS** — 24 bits under a CRC-7, and a documented layout tension.
 - **Following a call** — `Ingest`'s order, the lock, the grant, the drop.
 - **The rung** — what the tests pin, and the path they skip.
 
 ## A system with no control channel
 
-The package doc sets the frame: "LTR is architecturally different from
-the centrally-coordinated trunked systems (P25, DMR, NXDN, Motorola
-Type II, EDACS): every repeater transmits its own 41-bit status word at
-300 bps, on top of the in-band voice. There is no central control
-channel; an LTR scanner follows calls by watching every repeater's
-status word and tuning to whichever one currently announces the
-talkgroup of interest."
+The package doc sets the frame: "every repeater transmits its own 41-bit
+status word at 300 bps, on top of the in-band voice. There is no central
+control channel; an LTR scanner follows calls by watching every
+repeater's status word and tuning to whichever one currently announces
+the talkgroup of interest."
 
 GopherTrunk models that with the same `ControlChannel` shape as the
 rest of the family, bound to one frequency — one repeater. Its
-`LockState` is `{FrequencyHz, Area, Repeater}`, and the doc on it is
-precise about what the word means here: "LTR has no central control
-channel, so 'locked' here means 'we're receiving valid status words
-from the repeater on this frequency'." The hunter does not know the
-difference. `LockedNAC` packs `(Area << 8) | Repeater` into the slot
-P25 uses for a NAC, and `cchunt` type-asserts the payload like any
-other. One consequence follows from `site.go`: `CampsWhenIdle` returns
-true only for `ProtocolDMRTier2`, `ProtocolDMRTier1` and
-`ProtocolTETRADMO`, so an LTR repeater that is simply quiet during a
-hunt round is treated as a failed acquisition, not a camped channel —
-the hunter backs off rather than waiting. The package's "Still NOT
-wired" note is LTR-Net repeater-pair coordination, "where status-word
-references hop between physical sites. Each repeater is tracked on its
-own."
+`LockState` is `{FrequencyHz, Area, Repeater}`, and its doc is precise
+about the word: "LTR has no central control channel, so 'locked' here
+means 'we're receiving valid status words from the repeater on this
+frequency'." The hunter does not know the difference. `LockedNAC` packs
+`(Area << 8) | Repeater` into the slot P25 uses for a NAC, and `cchunt`
+type-asserts the payload like any other. One consequence follows from
+`site.go`: `CampsWhenIdle` returns true only for `ProtocolDMRTier2`,
+`ProtocolDMRTier1` and `ProtocolTETRADMO`, so an LTR repeater that is
+simply quiet during a hunt round is a failed acquisition, not a camped
+channel — the hunter backs off rather than waiting. The package's "Still
+NOT wired" note is LTR-Net repeater-pair coordination: "Each repeater is
+tracked on its own."
 
 ## The 41-bit status word
 
@@ -180,15 +175,13 @@ The receiver header explains the one unusual stage: the status word is
 "sub-audible (the bulk of the signal energy sits below 300 Hz), so the
 receiver extracts it via FM demod + a narrow low-pass filter, then runs
 symbol-rate clock recovery + 2-level slicing." The low-pass is a Kaiser
-FIR of `LPFLen` = 101 taps at `LPFCutoffHz` = 300 with `LPFBeta` = 8.6,
-which the comment sizes as "a transition width of ~430 Hz … ~85 dB
-stopband" at 48 kHz — the voice above the cutoff is what it rejects.
-`SymbolRate` is 300, so at the production 48 kHz the Mueller-Müller
-loop runs at 160 samples per symbol; `New` panics below 600 Hz. The
-slicer is zero-threshold. The receiver test synthesises IQ whose FM
-output is a ±1 NRZ waveform at 300 baud with 2 kHz deviation
-(`makeLTRFMIQ`), and the daemon test uses `demod.ModulateSubAudibleNRZ`
-at amplitude 0.05.
+FIR of `LPFLen` = 101 taps at `LPFCutoffHz` = 300 with `LPFBeta` = 8.6 —
+"a transition width of ~430 Hz … ~85 dB stopband" at 48 kHz, rejecting
+the voice above the cutoff. `SymbolRate` is 300, so at 48 kHz the
+Mueller-Müller loop runs at 160 samples per symbol; `New` panics below
+600 Hz. The receiver test synthesises IQ whose FM output is ±1 NRZ at
+300 baud with 2 kHz deviation (`makeLTRFMIQ`); the daemon test uses
+`demod.ModulateSubAudibleNRZ` at amplitude 0.05.
 
 Framing then has a pre-step the other packages lack. "Some LTR variants
 transmit the sub-audible status word in bi-phase / Manchester encoding
@@ -250,20 +243,19 @@ is outside the check entirely.
 The tests pin what they can. `TestCRC7LTRSingleBitMatchesTable` checks
 the function against its own table; `TestFCSOnAcceptsValidChecksum`,
 `TestFCSOnDropsCorruptedChecksum` and `TestFCSOnDropsCorruptedMessage`
-check that a computed FCS passes, a flipped FCS bit fails and a flipped
-`Channel` bit fails; `TestFCSOffIgnoresChecksum` checks the opt-out. The
-table is reference-pinned by copy; the message layout it is applied to
-is not.
+check a computed FCS passes and a flipped FCS or `Channel` bit fails;
+`TestFCSOffIgnoresChecksum` checks the opt-out. The table is
+reference-pinned by copy; the message layout it is applied to is not.
 
 ## Following a call
 
 `Ingest` runs its checks in a fixed order: strict validation if enabled,
-then the FCS under `FCSOn`, then `Sync`, then the area filter — `Options.Area`
-non-zero restricts the channel to one area, and `TestControlChannelFiltersByArea`
-shows area 7 dropped and area 5 accepted when 5 is configured. A word
-that passes reaches `maybeLock`, which publishes `LockState{FrequencyHz,
-Area: s.Area, Repeater: s.Home}` on the first identity or a changed one
-and logs `ltr cc locked`. Then:
+the FCS under `FCSOn`, `Sync`, then the area filter — a non-zero
+`Options.Area` restricts the channel to one area
+(`TestControlChannelFiltersByArea`: area 7 dropped, area 5 accepted). A
+word that passes reaches `maybeLock`, which publishes `LockState{FrequencyHz,
+Area: s.Area, Repeater: s.Home}` on the first or a changed identity and
+logs `ltr cc locked`. Then:
 
 ```go
 // internal/radio/ltr/control.go — Ingest (shape)
@@ -301,23 +293,23 @@ locally encoded stream; `strict_test.go` the `IsWellFormed` filter. The
 daemon integration test `TestDaemonCCDecodesLTR` boots the full chain on
 synthesised sub-audible NRZ — and sets `LTRManchesterMode: "off"` and
 `LTRFCSMode: "off"`, with `Status.FCS` left at zero in
-`buildLTRStatusStream`. The siglab fixture carries the same two knobs.
-So the one end-to-end test runs the opt-out configuration; the production
-defaults, `ManchesterSoft` and `FCSOn`, are exercised only at the unit
-level, and `ManchesterSoft` has no test of its own at all.
+`buildLTRStatusStream`; the siglab fixture carries the same two knobs.
+So the one end-to-end test runs the opt-out configuration; the
+production defaults, `ManchesterSoft` and `FCSOn`, are exercised only at
+the unit level, and `ManchesterSoft` has parse tests but no decode test
+of its own.
 
 The rung, then. The CRC-7 table is **reference-pinned** by copy from
 sdrtrunk. The 41-bit layout is what `status.go` calls "the most-cited
 public reference", pinned by round-trips, with a cross-check caveat and
-a documented, unreconciled disagreement with the FCS layout — closer to
-the **placeholder** rung than the SmartNet constants that cite OP25
-line by line. `docs/decoder-capture-needs.md` lists LTR among the control
-chains that "ship; FEC is on by default with no outstanding capture";
-`samples/README.md` notes that audio captures "still work for … sub-audible
-LTR Manchester", since the data rides under the voice. A sub-audible
-capture with a known area, home repeater and group, replayed with the
-defaults on, would settle the layout, the Manchester default and the FCS
-mapping in one pass. None exists.
+an unreconciled disagreement with the FCS layout — closer to the
+**placeholder** rung than the SmartNet constants that cite OP25 line by
+line. `docs/decoder-capture-needs.md` lists LTR among the control chains
+that "ship; FEC is on by default with no outstanding capture";
+`samples/README.md` notes audio captures "still work for … sub-audible
+LTR Manchester". A sub-audible capture with a known area, home repeater
+and group, replayed with the defaults on, would settle the layout, the
+Manchester default and the FCS mapping in one pass. None exists.
 
 ## Where this goes next
 
@@ -338,7 +330,7 @@ It binds one `ltr.ControlChannel` to one repeater frequency. The
 receiver low-passes the FM output at 300 Hz and recovers the 300-baud
 sub-audible bits; `Process` Manchester-decodes (soft by default) and
 aligns 41-bit `Status` words on their sync bit; `Ingest` checks the
-CRC-7, publishes `cc.locked` on the first valid word and a grant when
+CRC-7, publishes `cc.locked` on the first valid word and a grant on
 `IsActive()`.
 
 **What is in an LTR status word?**
@@ -359,7 +351,7 @@ layouts as not yet reconciled.
 `newLTRPipeline` wires no `Resolver`, and no LTR band-plan config key
 exists, so every grant publishes with `FrequencyHz: 0` and
 `Engine.HandleGrant` drops it with `dropping grant with zero frequency`.
-The lock and the grant decode work; the channel-to-frequency map is the
+The lock and grant decode work; the channel-to-frequency map is the
 missing piece, the same gap EDACS has.
 
 ## Series navigation
