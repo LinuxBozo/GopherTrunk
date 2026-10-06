@@ -16,6 +16,18 @@ for tagged releases.
   garbage talkgroup and source, and the call timed out on an empty carrier. It
   now reads the downlink channel and group at their real positions (SDRTrunk /
   OP25 layout); the update carries no source unit.
+- **The Termux builds died on start-up with `SIGSYS: bad system call` (#1230).**
+  They were Linux binaries, and Android's app sandbox kills a process that
+  makes the `faccessat2` system call, which Go's Linux build uses whenever it
+  looks up an installed program. The clipboard library does that at start-up
+  for `termux-clipboard-set`, so any phone with the Termux:API package crashed
+  before `version` printed. The `termux-arm64` / `termux-armv7` tarballs are
+  now built as native Android executables (`GOOS=android`, linked with the
+  Android NDK, Android 5.0 or later), where Go never makes that call. Host
+  names should now resolve too, through Android's own resolver.
+  `make termux-build` needs `ANDROID_NDK_HOME`, and `scripts/check-android.sh`
+  fails CI and the release if a Termux binary is not an Android executable or
+  links the `faccessat2` call.
 
 ## [v1.2.3] — 2026-10-03
 

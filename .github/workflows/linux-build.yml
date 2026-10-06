@@ -101,20 +101,16 @@ jobs:
             cp -r web/configbuilder/dist/. "dist/${NAME}/gophertrunk-web/configbuilder/"
             (cd dist && tar -czf "${NAME}.tar.gz" "${NAME}")
           done
-          # Android / Termux (#1230): static (nolibasound, no libdl), arm64 for
-          # 64-bit Android and armv7 for 32-bit. scripts/check-static.sh fails
-          # the build if either links dynamically.
+          # Android / Termux (#1230): GOOS=android, linked with the NDK the
+          # runner image preinstalls, arm64 for 64-bit Android and armv7 for
+          # 32-bit. scripts/build-android.sh builds and then runs
+          # scripts/check-android.sh, which fails the release unless the
+          # binary is an Android executable that cannot hit the faccessat2
+          # SIGSYS the v1.2.3 GOOS=linux build died of.
           for ARCH in arm64 armv7; do
-            case "${ARCH}" in armv7) GA=arm; GM=7 ;; *) GA="${ARCH}"; GM= ;; esac
             NAME="gophertrunk-${VERSION}-termux-${ARCH}"
             mkdir -p "dist/${NAME}"
-            GOARCH="${GA}" GOARM="${GM}" go build \
-              -trimpath \
-              -tags nolibasound \
-              -ldflags "${LDFLAGS}" \
-              -o "dist/${NAME}/gophertrunk" \
-              ./cmd/gophertrunk
-            scripts/check-static.sh "dist/${NAME}/gophertrunk"
+            scripts/build-android.sh "${ARCH}" "dist/${NAME}/gophertrunk" "${LDFLAGS}"
             cp README.md LICENSE TERMS_OF_SERVICE.md config.example.yaml "dist/${NAME}/"
             mkdir -p "dist/${NAME}/gophertrunk-web/siglab" "dist/${NAME}/gophertrunk-web/configbuilder"
             cp -r web/dist/. "dist/${NAME}/gophertrunk-web/"
