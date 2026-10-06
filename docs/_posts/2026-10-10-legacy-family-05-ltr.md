@@ -166,7 +166,7 @@ tests pin them to themselves.
   <text x="340" y="122" text-anchor="middle" fill="var(--fg-muted)" font-size="9">crc_ltr.go: sdrtrunk's 1-bit Area vs GopherTrunk's 5-bit Area and 4-bit Channel — "reconciling those layouts … is the documented follow-up"</text>
   <text x="340" y="140" text-anchor="middle" fill="currentColor" font-size="9" font-weight="bold">status.go: "the field positions follow the most-cited public reference … cross-check before trusting live captures"</text>
 </svg>
-<figcaption>The 41-bit word and the 24 bits its CRC-7 actually protects. The 5-bit Area field sits outside the check, and the two layouts in the package do not yet agree on where an area bit lives.</figcaption>
+<figcaption>The 41-bit word and the 24 bits its CRC-7 protects; the 5-bit Area sits outside the check, and the package's two layouts disagree on where an area bit lives.</figcaption>
 </figure>
 
 ## The sub-audible receiver and the Manchester modes
@@ -281,8 +281,7 @@ so the grant publishes with `FrequencyHz: 0`, as
 `TestControlChannelGrantWithoutResolverHasZeroFreq` pins, and
 `Engine.HandleGrant` drops it with `dropping grant with zero frequency`.
 A live LTR repeater therefore locks, announces calls, and is not
-followed; its voice would route to `voiceKindFM` if a grant ever reached
-the composer. `MarkLost` clears both the lock and `activeGroup`.
+followed. `MarkLost` clears both the lock and `activeGroup`.
 
 ## The rung
 
