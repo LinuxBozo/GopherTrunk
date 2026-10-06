@@ -269,7 +269,7 @@ carrier. The package's own tests cover the plan tiling
 
 ## Three phones
 
-v1.2.3 shipped on 4 Oct with both tarballs. The reporter tested on 5 Oct,
+v1.2.3 shipped with both tarballs. The reporter tested on 5 Oct,
 and the thread is the verification record. On every device `file`
 reports `statically linked` — the linking defect that motivated the work
 is gone on real hardware, which is more than the CI gate can say. What

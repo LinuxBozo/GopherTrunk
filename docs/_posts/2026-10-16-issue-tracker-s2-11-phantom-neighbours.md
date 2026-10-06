@@ -23,8 +23,8 @@ that put them there.*
 > **TL;DR:** TETRA's D-NWRK-BROADCAST (`ParseDNwrkBroadcast`,
 > `internal/radio/tetra/mle_parse.go`) advertises the serving cell's
 > neighbours and fills the systems report's "Neighbor sites". On an
-> operator's 467.9125 MHz rig it decoded two cells then garbage, later a
-> 1.5 GHz neighbour, then a 402.0125 MHz phantom that confirmed twice. Four
+> operator's 467.9125 MHz rig it decoded two cells then garbage, then a
+> 1.5 GHz neighbour, then a 402.0125 MHz phantom confirmed twice. Four
 > seams: `macFragmentPayload` leaked the fill-bit indication on
 > MAC-FRAG and two flags on MAC-END (one stray bit per seam); `tmSDU` ran
 > to the block end instead of the MAC length indication, so fill bits became
@@ -61,7 +61,7 @@ that put them there.*
 | Neighbour broadcast parse | decodes D-NWRK-BROADCAST; rejects ≥ 8 trailing bits | `internal/radio/tetra/mle_parse.go` (`ParseDNwrkBroadcast`) |
 | Fragment payload seams | strips header fields per osmo-tetra `rx_macfrag`/`rx_macend` | `internal/radio/tetra/mac.go` (`macFragmentPayload`, `tmSDU`, `stripFillBits`) |
 | Chain continuity | two frames + slot grid between pieces | `control.go` (`fragMaxGapDibits`, `onChainSlotGrid`, `fragChainAdjacentLocked`) |
-| Lost-block detection | per-block, with a trusted AACH only | `downlink.go` (`decodeDownlinkSlot`, `aachClassifyMaxErrs` = 2) |
+| Lost-block detection | per block, trusted AACH only | `downlink.go` (`decodeDownlinkSlot`, `aachClassifyMaxErrs` = 2) |
 | Whole-list distrust | one implausible cell drops the broadcast, logs `tl_sdu_hex` | `control.go` (`learnNeighbourCells`, `plausibleNeighbourCell`) |
 | Expiry | 30 min without re-advertisement, aged only across accepted broadcasts | `neighbourExpiry`, `TestLearnNeighbourCellsExpiresUnadvertisedCells` |
 | Field pin | literal TL-SDU from the 4 Sep log, 132 bits of residue | `mle_parse_test.go` (`TestParseDNwrkBroadcastRejectsSplicedFieldCapture`) |
@@ -106,8 +106,7 @@ if sub == macEnd {
 The round-trip test had been green the whole time because its encoder
 shared the wrong layout — the
 [self-consistent trap]({{ '/blog/solution-postmortem/from-the-issue-tracker-20-self-consistent-trap/' | relative_url }})
-again. Single-block PDUs were unaffected, so everything else on the
-carrier looked fine; only a fragmented L3 PDU corrupts, from the seam
+again. Single-block PDUs were unaffected, so everything else looked fine; only a fragmented L3 PDU corrupts, from the seam
 onward. With the layouts pinned against osmo-tetra, the parser went live
 behind a confirm-twice gate (`neighboursPending`): the 6-bit PD+type
 check is thin enough that a corrupted-but-CRC-passing TL-SDU parses
@@ -206,8 +205,7 @@ Three holes let a chain survive the losses that set a splice up:
    continuation must land on the chain's 255-dibit slot grid
    (`onChainSlotGrid`). The grid is load-bearing: the NCDB detector also
    emits spurious off-grid correlator hits (+92 and +163 dibits on the 4 Sep
-   captures), and a naive gap-between-emits check aborted every chain on
-   this SCBS/timeshare carrier — neighbours 0/8.
+   captures), and a naive gap-between-emits check aborted every chain on this timeshare carrier — neighbours 0/8.
 
 <figure class="lab-figure">
 <svg viewBox="0 0 680 220" width="680" height="220" role="img" aria-label="A timeline on a 255-dibit slot grid: transmission A's start fragment and MAC-FRAG, then its lost MAC-END slot, then transmission B's MAC-END three frames later. The old window spliced B onto A; the new rule abandons A at the lost slot and refuses B as stale.">
@@ -300,8 +298,7 @@ rtl_power-style sweep over rtl_tcp and could not start the binary: a
 Linux build with `CGO_ENABLED=0` still linked `libdl.so.2` through the
 ALSA player's `purego` loader.
 [Part 12]({{ '/blog/solution-postmortem/issue-tracker-s2-12-cgo-disabled-is-not-static/' | relative_url }})
-measures the dynamic section, adds the `nolibasound` tag and the
-`check-static.sh` gate, and reports what three phones did.
+measures the dynamic section, adds the `nolibasound` tag and `check-static.sh`, and reports what three phones did.
 
 ## FAQ
 
@@ -309,8 +306,7 @@ measures the dynamic section, adds the `nolibasound` tag and the
 Three MAC-layer boundary bugs: `macFragmentPayload` leaked a bit at each
 fragment seam, `tmSDU` passed block-tail bits that `ParseDNwrkBroadcast`
 read as phantom optional fields, and the reassembly spliced a MAC-END from
-one transmission onto another's start fragment. All three produced
-deterministic garbage that repeated past the confirm-twice gate.
+one transmission onto another's start fragment. All three repeated bit-identically past the confirm-twice gate.
 
 **What does "abandoning TM-SDU fragment reassembly" in the log mean?**
 It is the continuity guard working, not a parse error. A control slot on
@@ -335,10 +331,9 @@ synthetically in `frag_continuity_test.go` with a no-harm control.
 
 **Why do neighbours expire after 30 minutes?**
 The broadcast rotates through the live neighbour list within a minute or
-two, so a cell absent for `neighbourExpiry` has genuinely left it — a
+two, so a cell absent for `neighbourExpiry` has left it — a
 reconfigured network or a phantom that slipped an earlier gate. Expiry is
-measured only across accepted broadcasts, so a control-channel outage
-never expires anything.
+measured only across accepted broadcasts, so a CC outage never expires anything.
 
 ## Series navigation
 
