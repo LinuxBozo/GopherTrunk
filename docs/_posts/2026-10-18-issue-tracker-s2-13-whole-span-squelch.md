@@ -70,9 +70,9 @@ been measuring the wrong population since the day it was written.*
 
 - **What the reporter saw** — four observations, one of them a bug.
 - **A gate that was never false** — `PowerDbFS` over 2.4 MHz.
-- **The channel power meter** — the tone front end's geometry, reused.
+- **The channel power meter** — the tone front end, reused.
 - **Per-channel gain** — the other half of a mixed scan list.
-- **On air, and what is still absolute** — the v1.2.3 confirmation and the open dBFS trap.
+- **On air, and what is still absolute** — confirmed on v1.2.3; dBFS still absolute.
 
 ## What the reporter saw
 
@@ -135,7 +135,7 @@ past by raising gain — with the twist that here the measurement was not
 even of the thing being gated.
 
 <figure class="lab-figure">
-<svg viewBox="0 0 680 210" width="680" height="210" role="img" aria-label="A 2.4 MHz spectrum centred on an empty scanned channel at the −90 dBFS floor, with a −20 dBFS carrier 500 kHz away. The old whole-span RMS reads about −20 dBFS, above the −50 dBFS squelch line, so the gate opens; the new ±8 kHz in-channel meter reads about −90 dBFS and stays shut.">
+<svg viewBox="0 0 680 210" width="680" height="210" role="img" aria-label="A 2.4 MHz spectrum: the scanned channel empty at −90 dBFS, a −20 dBFS carrier 500 kHz away. Whole-span RMS reads about −20 dBFS, above the −50 dBFS squelch line, so the old gate opens; the ±8 kHz meter reads about −90 dBFS and stays shut.">
   <text x="340" y="14" text-anchor="middle" fill="currentColor" font-size="10" font-weight="bold">one 2.4 MS/s chunk, channel at 0 kHz — what PowerDbFS saw vs what the channel carries</text>
   <line x1="40" y1="120" x2="640" y2="120" stroke="var(--fg-muted)"/>
   <g fill="var(--fg-muted)" font-size="8" text-anchor="middle">
@@ -218,8 +218,7 @@ opens.
 The reporter's first observation shipped in the same PR, because a mixed
 scan list needs it once the squelch is honest. One scanner SDR serves
 VHF FM beside air-band AM beside UHF, and no single tuner gain suits all
-three — `auto` serves AM worst, since its AGC chases the very envelope the
-demodulator needs. `scanner.conventional[].gain` takes the same form as
+three — `auto` serves AM worst. `scanner.conventional[].gain` takes the same form as
 `sdr.devices[].gain` — `"auto"`, or tenths of a dB, so `"280"` is 28 dB —
 and is written to the device **before** the channel is tuned:
 
@@ -242,10 +241,9 @@ device's gain: a channel without one returns it to
 `DefaultGainTenthDB`, the gain the pool applied at open (`convDeviceGain`,
 −1 for automatic), so leaving an AM channel at 40 dB puts the FM channels
 back where the operator configured them. And an unchanged gain is not
-rewritten — `appliedGain` is compared first — because a tuner write is an
-I2C transaction that can stall (the #248/#753 class), and a failed write
-is logged once per value while the scan carries on at whatever gain the
-device holds. `convChannelGain` parses with the device-gain parser and
+rewritten — `appliedGain` is compared first — because a tuner write can
+stall (the #248/#753 class), and a failed write is logged once per value
+while the scan carries on at whatever gain the device holds. `convChannelGain` parses with the device-gain parser and
 warns when a value looks like whole dB ("28" is 2.8 dB; write "280" or
 "28.0"). Pinned by `TestConvScannerAppliesPerChannelGain` (gain lands
 before each tune, in order), `TestConvScannerLeavesGainAloneWithoutChannelGains`

@@ -167,9 +167,8 @@ The AMBE-era modes have the opposite profile. Their physical layers are
 the C4FM family's (NXDN, dPMR, YSF) or a close cousin (D-STAR), and the
 unknowns are small and specific: a 72-bit interleave table, a frame
 carve, a codebook, a FICH schedule. That is why their capture requests
-say "clear voice" rather than "control channel", and why NXDN — the one
-protocol with a Tier-1 harness ready — tops `decoder-capture-needs.md`'s
-priority list.
+say "clear voice", and why NXDN — the one protocol with a Tier-1 harness
+ready — tops `decoder-capture-needs.md`'s priority list.
 
 ## Recording a capture
 
@@ -261,9 +260,9 @@ The last rung is not a test. CLAUDE.md's issue-closing policy, the
 subject of
 [From Spec to Shipping Part 14]({{ '/blog/deep-dives/from-spec-to-shipping-14-definition-of-verified/' | relative_url }}),
 says a close is a claim the problem is gone, earned when a failing-first
-regression passes *and* the reporter confirms, and that PRs say `Refs
-#N` until then. Every row above is a `Refs`, including the ones whose
-code is almost certainly right. The three sibling series show the top rung reached — the
+regression passes *and* the reporter confirms, and that PRs say `Refs #N`
+until then. Every row above is a `Refs`, including those whose code is
+almost certainly right. The three sibling series show the top rung reached — the
 [P25 playbook]({{ '/blog/deep-dives/p25-end-to-end-14-playbook/' | relative_url }}),
 the [DMR playbook]({{ '/blog/deep-dives/dmr-end-to-end-14-playbook/' | relative_url }})
 and [TETRA's open questions]({{ '/blog/deep-dives/tetra-end-to-end-14-testing-open-questions/' | relative_url }})
@@ -319,11 +318,11 @@ integration` it mounts the `.cfile` on a mock SDR, boots the daemon with
 sidecar. The binary stays git-ignored; the sidecar is committed.
 
 **Why is NXDN the top capture priority?**
-Because its harness is fully ready and nothing has run through it.
+Because its harness is ready and nothing has run through it.
 `docs/decoder-capture-needs.md` ranks an outbound RCCH capture first; the
 pass bar is ≥ 80 % CAC CRC, SystemID/SiteID/RAN byte-match and lock within
-3 s, and the same file baselines the `nxdn_soft_decision` and `nxdn_afc`
-opt-ins through `TestReplayNXDNRealCapture`.
+3 s, and the same file baselines `nxdn_soft_decision` and `nxdn_afc`
+through `TestReplayNXDNRealCapture`.
 
 ## Series navigation
 

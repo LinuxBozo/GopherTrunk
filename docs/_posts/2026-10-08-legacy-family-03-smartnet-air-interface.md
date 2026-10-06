@@ -74,11 +74,11 @@ this part does not retell it. It reads the bits.*
 ## In this post
 
 - **The frame on the wire** — 84 bits, and why the bracket makes an 8-bit sync safe.
-- **From 76 bits to 27** — stride-19 deinterleave, parity ECC, CRC-10, inversion.
+- **From 76 bits to 27** — deinterleave, parity ECC, CRC-10, inversion.
 - **The OSW and its sequencer** — a channel number as the only opcode.
-- **Four band plans** — the formulas, with the #1143 channel as a worked example.
-- **The 18 kHz front end** — why the DDC target and the DC tracker both matter.
-- **The rung and the gate** — what is pinned, what is not wired, what is missing.
+- **Four band plans** — the formulas, with the #1143 channel as the example.
+- **The 18 kHz front end** — the DDC target and the DC tracker.
+- **The rung and the gate** — pinned, unwired, missing.
 
 ## The frame on the wire
 
@@ -276,12 +276,11 @@ load-bearing one: with no opcode, `IsChannel` is what separates "go to
 
 ## The 18 kHz front end
 
-The receiver (`receiver/receiver.go`) mirrors trunk-recorder's
-`smartnet_fsk2_demod`: FM discriminator, slow DC tracker, one-symbol
-boxcar, Mueller-Müller, zero-threshold slicer. `SymbolRate` is 3600 and
-`DeviationHz` 1200; the production DDC delivers 18 kHz, so `boxTaps` is
-5 and the clock loop runs at 5 samples per symbol with the default gain
-of 0.05.
+The receiver mirrors trunk-recorder's `smartnet_fsk2_demod`: FM
+discriminator, slow DC tracker, one-symbol boxcar, Mueller-Müller,
+zero-threshold slicer. `SymbolRate` is 3600 and `DeviationHz` 1200; the
+production DDC delivers 18 kHz, so `boxTaps` is 5 and the clock loop
+runs at 5 samples per symbol with the default gain of 0.05.
 
 Two choices carry the design. The first is the channel rate:
 `motorolaDDCTargetRateHz` = 18000 in `ccdecoder/ddc.go` exists because
@@ -360,16 +359,14 @@ one, pinned by `TestProcessRequiresBracketSync`.
 **What does motorola_band_plan select, and what happens with a wrong plan?**
 `ParseBandPlan` maps it to `800_standard` (851.0125 MHz + 25 kHz × ch),
 `800_rebanded`, `800_splinter` or `900` (935.0125 MHz + 12.5 kHz × ch).
-Because SmartNet has no grant opcode, the plan's `IsChannel` is what
-recognises a grant at all; an unknown name falls back to `800_standard`
-with a WARN.
+With no grant opcode, the plan's `IsChannel` is what recognises a grant
+at all; an unknown name falls back to `800_standard` with a WARN.
 
 **Is GopherTrunk's SmartNet decoder verified on a real system?**
 No. It is reference-pinned: sync bits, interleave permutation, XOR masks
 and band-plan frequencies are tested against OP25 and trunk-recorder
 literals, and `TestProcessDecodesRealAirFormat` fails against the
-pre-#1143 decoder. The reporter's 854.5625 MHz capture is the outstanding
-on-air gate.
+pre-#1143 decoder. The reporter's 854.5625 MHz capture is the open gate.
 
 ## Series navigation
 

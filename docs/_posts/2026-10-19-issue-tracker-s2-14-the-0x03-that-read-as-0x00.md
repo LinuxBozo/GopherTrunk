@@ -68,8 +68,8 @@ with what the season's fourteen bugs had in common.*
 
 ## In this post
 
-- **What the reporter saw** — a site where every call lived at 450.000 MHz.
-- **Two layouts, one first byte** — what the 0x00 read made of a 0x03 payload.
+- **What the reporter saw** — every call at 450.000 MHz.
+- **Two layouts, one first byte** — a 0x03 payload through the 0x00 read.
 - **Pinning it with bits, not round-trips** — `tsbkBits` and the UHF replay.
 - **The signature, and what is still unverified** — `frequency_hz == base_hz`.
 - **What Season 2 taught** — fourteen bugs, five habits.
@@ -135,7 +135,7 @@ joined to the real group — garbage both. The message was decoded
 talkgroup from a nonexistent radio.
 
 <figure class="lab-figure">
-<svg viewBox="0 0 680 200" width="680" height="200" role="img" aria-label="Two eight-byte TSBK payload strips. Opcode 0x00: service options, channel in bytes 1 to 2, group in 3 to 4, source in 5 to 7. Opcode 0x03: service options, a reserved byte, downlink channel in bytes 2 to 3, uplink in 4 to 5, group in 6 to 7. A bracket shows the 0x00 parser's channel read covering the reserved byte and the downlink's high byte, which resolves to channel 0 of ID 0, the band plan's base frequency.">
+<svg viewBox="0 0 680 200" width="680" height="200" role="img" aria-label="Two eight-byte TSBK payload strips: opcode 0x00 with service options, channel, group and source; opcode 0x03 with service options, a reserved byte, downlink channel, uplink channel and group. A bracket shows the 0x00 channel read covering the reserved byte and the downlink's high byte, resolving to the band plan's base frequency.">
   <text x="340" y="14" text-anchor="middle" fill="currentColor" font-size="10" font-weight="bold">TSBK payload bytes 0..7 (bits 16–79): what the 0x00 read made of a 0x03 message</text>
   <text x="20" y="52" fill="var(--fg-muted)" font-size="9">0x00</text>
   <g font-size="8" text-anchor="middle">
@@ -240,8 +240,8 @@ only end by timeout, is a parser landing on a zero byte. The
 `p25: identifier update` log line prints `base_hz`, so the comparison is
 one grep of `debug.log`.
 
-Status, honestly: the fix is merged and sits under `[Unreleased]` in the
-changelog at the time of writing. The two tests fail on the old code and
+Status: the fix is merged, under `[Unreleased]` in the changelog at the
+time of writing. The two tests fail on the old code and
 pass on the new, and the layout is pinned against two independent
 decoders. The reporter has been asked to confirm three things —
 `call.start` shows real voice frequencies, the talkgroups match what a
@@ -289,7 +289,7 @@ a FLAC frame header whose sample-rate table ends at 655 350 Hz
 ([Part 8]({{ '/blog/solution-postmortem/issue-tracker-s2-08-sample-rate-880029/' | relative_url }})),
 and a squelch integrating 2.4 MHz instead of 16 kHz
 ([Part 13]({{ '/blog/solution-postmortem/issue-tracker-s2-13-whole-span-squelch/' | relative_url }}))
-all passed every unit test written at the rate the author had in mind.
+all passed every test written at the author's rate.
 
 **Measure what the code actually sees.** Zero-IF clipping products at
 4δ ([Part 2]({{ '/blog/solution-postmortem/issue-tracker-s2-02-tone-at-four-delta/' | relative_url }})),
@@ -319,16 +319,16 @@ extended past DSP into recorders, linkers and web forms.
 
 And the standing rule under every post: a green synthetic is a claim, a
 reporter's confirmation is a verification, and the two are logged
-separately. Several of this season's fixes are still waiting on the
-second — including this one.
+separately. Several of this season's fixes still wait on the second —
+including this one.
 
 ## Where this goes next
 
 The season ends here. The subsystem most of its bugs lived in has its own
-operator tutorial, [The Conventional Scanner]({{ '/blog/series/conventional-scanner/' | relative_url }});
-the log lines its fixes added are read in
+tutorial, [The Conventional Scanner]({{ '/blog/series/conventional-scanner/' | relative_url }});
+its log lines are read in
 [The Field Notebook]({{ '/blog/series/field-notebook/' | relative_url }});
-and the three meta-lessons it kept re-learning are
+and the meta-lessons it kept re-learning are
 [Season 1]({{ '/blog/series/from-the-issue-tracker/' | relative_url }})'s
 closing parts. The next issue is already open.
 
@@ -358,8 +358,8 @@ pins that uplink channel 0-880 must not win over downlink 0-80.
 Compare grant `frequency_hz` against the `base_hz` values in the `p25:
 identifier update` log lines. A run of grants that all equal a base
 exactly, with talkgroups that match nothing and calls ending only by
-timeout, means a channel field is being read from zero bytes — a layout
-mismatch, not a site that uses channel 0.
+timeout, means a channel field is read from zero bytes — a layout
+mismatch, not a site using channel 0.
 
 **Is the #1242 fix verified on air?**
 Not yet. The parser is pinned with literal bit positions from SDRTrunk and
