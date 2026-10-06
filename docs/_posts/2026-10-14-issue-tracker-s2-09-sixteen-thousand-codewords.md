@@ -85,18 +85,17 @@ host_drops`, and the natural reading of that line at 200 kS/s is a network
 or driver fault — a rate that small cannot be a CPU problem.
 
 It can. `sendOrDrop` in `internal/sdr/soapyremote/driver.go` only sheds
-when the consumer stops draining a ~400 ms channel, and the driver has not
-changed since the repo import; its last defect was an opcode, not a
+when the consumer stops draining a ~400 ms channel; the driver has not
+changed since the repo import, and its last defect was an opcode, not a
 counter
 ([Season 1 Part 18]({{ '/blog/solution-postmortem/from-the-issue-tracker-18-the-stall-that-wasnt/' | relative_url }})).
 `host_drops` is the consumer falling behind
 ([Field Notebook Part 7]({{ '/blog/tutorials/field-notebook-07-overruns-host-drops/' | relative_url }})
 reads the line). The single-channel `ccdecoder` path has a companion WARN
-for exactly that case — `decode can't keep up with real time` — which is
-what makes CPU obvious there. The wideband engine has no such line, so its
-overruns arrive without a hint. The standing rule that came out of this
-report: an "overruns at low rate" report on a path that logs no
-keep-up WARN still means profile the pump.
+— `decode can't keep up with real time` — that makes CPU obvious there;
+the wideband engine has none, so its overruns arrive without a hint. The
+standing rule from this report: an "overruns at low rate" report on a path
+with no keep-up WARN still means profile the pump.
 
 The profile instrument is `TestEngineDualTETRA200kThroughput` in
 `internal/scanner/widebandt2/`: skipped unless `GT_WB_BENCH_SECONDS` is
@@ -183,10 +182,9 @@ func DecodeRM3014Tetra(received []byte) ([]byte, int) {
 }
 ```
 
-The hard decoder is now one XOR and one popcount per candidate — 17 µs for
-the full search, with the early exit at distance 0 making a clean slot
-cheaper still. Ties resolve to the lowest information vector, as the
-original per-codeword search did, which matters on uncorrectable words.
+The hard decoder is now one XOR and one popcount per candidate — 17 µs
+for the full search, with the early exit at distance 0 making a clean slot
+cheaper still; ties resolve to the lowest information vector, as before.
 
 The soft decoder, `DecodeRM3014TetraSoft`, maximises the correlation
 Σ llr·(1 − 2c) over the same table. A 30-term dot product per candidate
@@ -194,10 +192,8 @@ would be ~500 k adds; instead the 30 LLRs are split into three 10-bit
 groups and a 1024-entry partial-sum table is built per group
 (`tab[k][x] = tab[k][x & (x−1)] + llr[lowest set bit]`), so each
 candidate's correlation is three lookups and two adds — ~50 k operations,
-36 µs, and no allocation on the search path. It returns the same `margin`
-= (best − second) / (2·Σ|llr|) the old implementation did, 0 when two
-codewords fit equally and 1 on a clean codeword, so the callers' confidence
-gates are untouched.
+36 µs, and no allocation on the search path. It returns the same `margin` = (best − second) / (2·Σ|llr|) as before, so
+the callers' confidence gates are untouched.
 
 <figure class="lab-figure">
 <svg viewBox="0 0 680 210" width="680" height="210" role="img" aria-label="Two pipelines for one AACH decode over 16384 candidates. Old: each candidate re-runs the allocating encoder then 30 byte compares, several hundred microseconds and about sixteen thousand allocations. New: each candidate is one XOR and one popcount against a once-built uint32 table, 17 microseconds hard or 36 soft, zero allocations. Called about 70 times per second per carrier plus once per traffic burst.">
@@ -336,11 +332,11 @@ correlates via three 10-bit partial-sum tables (36 µs), both allocation-
 free and bit-identical to the old search.
 
 **Is the faster AACH decoder guaranteed to give the same answers?**
-Yes, and it is tested rather than assumed: `TestRM3014CodebookMatchesBruteForce`
+Yes, tested rather than assumed: `TestRM3014CodebookMatchesBruteForce`
 keeps the original re-encode-every-codeword search as the reference and
 compares info, Hamming distance and soft margin on 400 random words at
-every error weight, including uncorrectable ones where tie-breaking
-matters. `TestRM3014DecodeAllocations` pins ≤ 1 allocation per decode.
+every error weight, uncorrectable ones included.
+`TestRM3014DecodeAllocations` pins ≤ 1 allocation per decode.
 
 **What changed in filter.FIR and why is summation order mentioned?**
 `FIR.Process` now keeps a 2N mirrored history so the last N samples are a

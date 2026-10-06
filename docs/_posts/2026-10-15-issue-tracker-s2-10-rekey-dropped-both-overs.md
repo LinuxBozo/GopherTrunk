@@ -66,7 +66,7 @@ was starting.*
 | Call identity | `a != 0 && b != 0 && a != b`; zero matches anything (legacy / synthetic calls) | `callIDsDiffer` |
 | Call-aware drain | ignores a drain for a call the serial no longer records; resets a stale `drained` flag | `NotifyDrainCompleteForCall`, `handleEnd` |
 | Frame fence | a frame carrying another call's ID never lands in the open session | `sessionForWrite`, `WriteRawFrameForCall`, `WritePCMForCall` |
-| Who stamps the ID | `Bind` puts a fresh `CallID` on the grant the `CallStart` carries | `internal/trunking/engine.go` |
+| Who stamps the ID | `VoicePool.Bind` puts a fresh `CallID` on the grant the `CallStart` carries | `internal/trunking/voicepool.go`, published from `engine.go` |
 | Plumbing | composer's `handleEnd` → `fanoutSink.NotifyDrainCompleteForCall` → recorder | `composer/composer.go`, `cmd/gophertrunk/daemon.go` |
 | Failing-first pin | re-key during a pending drain records both overs | `recorder_drain_test.go` (`TestRecorderRekeyDuringPendingDrainKeepsNextOver`) |
 
@@ -146,9 +146,9 @@ old call and grants the new one — `Rekeys` counts them — instead of
 deduplicating the header against the call it was still tracking. That fix
 is what made the re-key *grant* on 10 Sep. The engine's side of a grant on
 a busy serial is to publish `CallEnd` for the previous call and
-`CallStart` for the next in the same instant, and `Bind` stamps each
-`CallStart`'s grant with a fresh `CallID` — the comment in
-`internal/trunking/engine.go` says what it is for: "the voice chain +
+`CallStart` for the next in the same instant, and `VoicePool.Bind` stamps
+each `CallStart`'s grant with a fresh `CallID` — the comment where
+`internal/trunking/engine.go` publishes it says what it is for: "the voice chain +
 recorder use [it] to fence cross-call audio bleed on a reused tap serial".
 
 So the recorder sees, with no gap: `CallEnd(A)` — parked in
@@ -258,12 +258,11 @@ A's tail frames may still arrive after that; they carry A's `CallID` and
 
 Then every finalize and drain path checks the identity.
 `NotifyDrainCompleteForCall(serial, callID)` is `NotifyDrainComplete` plus
-the `Grant.CallID` of the call whose chain drained: a signal that arrives
-with no parked state and an open session for a *different* call is the
-previous call's, arriving after a re-key reused the serial — its recording
-was already finalised by `finalizeDrainingBeforeReuse` — and is ignored; a
-signal whose ID differs from a parked `CallEnd`'s is likewise the old
-call's and is dropped. `handleEnd` resets a stale `drained` flag left by a
+the `Grant.CallID` of the call whose chain drained: a signal that finds an
+open session for a *different* call is the previous call's, arriving after
+a re-key reused the serial — already finalised by
+`finalizeDrainingBeforeReuse` — and is ignored; one whose ID differs from
+a parked `CallEnd`'s is likewise dropped. `handleEnd` resets a stale `drained` flag left by a
 different call so the newer call's own drain is still awaited. And
 `finalizeCall` itself refuses a `CallEnd` naming a call the session no
 longer belongs to, logging `ignoring call end for a call this device no
@@ -292,11 +291,10 @@ directory is `[5 4]` — two transmissions, both recorded — and the bus
 carried two `KindCallComplete` events. Against the old recorder it writes
 one `.raw` and publishes one `CallComplete`.
 
-What the test does not cover is the live rig. The whole commit — the
-deaf-heal decay, the channel filter, this fence and the late first grant
-— was diagnosed from the 600 s capture and the log, and the #764/#771
-rule holds: the operator's next live run on a build with these fixes is
-what confirms that a re-key records both overs. The sign it has, in `debug.log`: the `replacing` WARN replaced by the
+What the test does not cover is the live rig. The whole commit was
+diagnosed from the 600 s capture and the log, and the #764/#771 rule
+holds: the operator's next live run on a build with these fixes is what
+confirms that a re-key records both overs. The sign it has, in `debug.log`: the `replacing` WARN replaced by the
 Debug line `device re-keyed while its previous call was draining —
 finalizing that call now`, with `prev_call_id` and `call_id` one apart.
 
@@ -313,12 +311,11 @@ follows the seams in MAC fragment reassembly.
 ## FAQ
 
 **Why did a DMR re-key make GopherTrunk lose two recordings?**
-With drain coordination on, the previous call's `CallEnd` was parked
-waiting for its chain to drain when the re-key's `CallStart` arrived on
-the same serial. `handleStart` closed the old session without finalising
-it (no `CallComplete`), and the old call's serial-keyed drain signal then
-finalised the new session before its first frame, so every frame of the
-next over was dropped.
+The previous call's `CallEnd` was parked waiting for its chain to drain
+when the re-key's `CallStart` arrived on the same serial. `handleStart`
+closed the old session without finalising it (no `CallComplete`), and the
+old call's serial-keyed drain signal then finalised the new session before
+its first frame, so every frame of the next over was dropped.
 
 **What does "recorder: device already has session, replacing" mean?**
 A `CallStart` arrived for a device serial whose previous session is still
@@ -328,7 +325,7 @@ serial, logging `device re-keyed while its previous call was draining —
 finalizing that call now` with `prev_call_id` / `call_id`.
 
 **What is Grant.CallID used for in the recorder?**
-It is the per-call identity the engine's `Bind` stamps on each grant.
+It is the per-call identity `VoicePool.Bind` stamps on each grant.
 `callIDsDiffer` compares it on every finalize and drain path:
 `NotifyDrainCompleteForCall` ignores a drain for another call,
 `finalizeCall` refuses a `CallEnd` for a call the serial no longer

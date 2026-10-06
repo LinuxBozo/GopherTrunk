@@ -43,17 +43,16 @@ describe, grade, drop into `samples/`.*
 
 **Key takeaways**
 
-- **A rung is a statement about evidence, not quality.** Reference-pinned
-  code can be correct and still unproven; on-air verified means a human
-  on a real rig said so.
+- **A rung states evidence, not quality.** Reference-pinned code can be
+  correct and still unproven; on-air verified means a human on a real rig
+  said so.
 - **The harnesses exist before the captures do.** NXDN's real-air test
-  skips with a message naming the file it wants; that is the pattern.
+  skips with a message naming the file it wants.
 - **The sidecar is the capture.** A raw `.cfile` carries no rate or
-  centre; `sample_rate_hz` and `center_freq_hz` are what let anything
-  replay it.
-- **The FM-era and AMBE-era gaps differ in kind.** The trunking
-  generation needs IQ of a control channel; the AMBE modes need clear
-  voice, because the unknown is a 72-bit table.
+  centre; `sample_rate_hz` and `center_freq_hz` let anything replay it.
+- **The two eras' gaps differ in kind.** The trunking generation needs
+  control-channel IQ; the AMBE modes need clear voice, because the unknown
+  is a 72-bit table.
 
 ## Cheat sheet
 
@@ -106,11 +105,11 @@ voice; the table keeps them apart.
 
 | Protocol | Rung today | Evidence in the tree | Real-air harness | Capture needed (source) |
 |---|---|---|---|---|
-| Motorola Type II | reference-pinned (control); FM voice via the composer | OP25 `rx_smartnet` + trunk-recorder `SmartnetParser` literals; `TestProcessDecodesRealAirFormat` (old decoder → zero decodes); `TestDaemonCCDecodesMotorola` | none; the #1143 854.5625 MHz Airspy R2 3 MS/s cfile is the named gate | any SmartNet CC IQ (`CLAUDE.md` #1143; `decoder-capture-needs.md` lists control as not capture-blocked) |
+| Motorola Type II | reference-pinned (control); FM voice via the composer | OP25 `rx_smartnet` + trunk-recorder `SmartnetParser` literals; `TestProcessDecodesRealAirFormat`; `TestDaemonCCDecodesMotorola` | none; the #1143 854.5625 MHz Airspy R2 cfile is the named gate | any SmartNet CC IQ (`CLAUDE.md` #1143) |
 | EDACS | reference-pinned (control, per `lwvmobile/edacs-fm`); ProVoice **bypassed** | `edacs_bch_mode` on, BCH(40,28,2) in `framing/bch_edacs.go`; `strict_test.go`; `TestDaemonCCDecodesEDACS` | none | 9600-baud CC IQ, none on file (`status.md`: ProVoice "followed and logged but not yet turned into PCM") |
 | LTR | spec-derived, synthetic-green (control); FM voice | 41-bit status word (`statusBits`), `ltr_fcs_mode` FCSOn, `ltr_manchester_mode` ManchesterSoft; `strict_test.go`; `TestDaemonCCDecodesLTR` | none | subaudible-data repeater IQ, none on file (`opt-in-features.md`, package docs name "the most-cited public reference") |
 | MPT 1327 | real audio decoded, manually; IQ not on file | `samples/mpt1327/MPT1327_423.6_{1,2}.mp3` through `samples/cmd/audio_smoketest`; CWSC tolerance 2, BCH(64,48,2); `process_cwsc_test.go`, `minconfirm_test.go`; `TestDaemonCCDecodesMPT1327` | manual only | optional: ≥ 60 s IQ or 8 kHz audio for the false-positive rate (`decoder-capture-needs.md` Tier 3) |
-| NXDN | reference-pinned control (`ViterbiSpec` chain); voice **placeholder** | `nxdn_soft_decision` 26/200 → 151/200 at σ=0.7 (synthetic, `protocol-feature-parity.md`); `nxdn_afc` opt-in; `TestDaemonCCDecodesNXDN` | `TestDaemonCCDecodesNXDNRealAir` (skip-gated), `TestReplayNXDNRealCapture` (`GT_NXDN_IQ`) | outbound RCCH IQ ≥ 5 s at 48 kHz, pass ≥ 80 % CAC CRC, SystemID/SiteID/RAN match, lock < 3 s (`samples/nxdn/README.md`); plus clear voice for the table |
+| NXDN | reference-pinned control (`ViterbiSpec` chain); voice **placeholder** | `nxdn_soft_decision` 26/200 → 151/200 at σ=0.7 (synthetic, `protocol-feature-parity.md`); `TestDaemonCCDecodesNXDN` | `TestDaemonCCDecodesNXDNRealAir` (skip-gated), `TestReplayNXDNRealCapture` (`GT_NXDN_IQ`) | outbound RCCH IQ ≥ 5 s at 48 kHz: ≥ 80 % CAC CRC, SystemID/SiteID/RAN match, lock < 3 s (`samples/nxdn/README.md`); clear voice for the table |
 | dPMR Mode 3 | spec-derived control, CSBK FEC absent; voice **placeholder** | FS3 → 80-bit CSBK → `LinearBandPlan`; `TestStrictValidationDropsUnknownMessageType`; `TestDaemonCCDecodesDPMR`; `TestTCHFrameRoundTrip` | none | ≥ 10 s IQ at 48 kHz, clear voice (`decoder-capture-needs.md` item 6) |
 | D-STAR | reference-matched polynomials/CRC; shell self-consistent; `FECOff` default; voice **placeholder** | `TestComputeCRCKnownVector` (`0x29B1`); `TestDaemonCCDecodesDStar`, `…FECOn`; `TestDVVoiceBitsRoundTrip` | none; no `samples/dstar/` | ≥ 10 s IQ at 48 kHz, clear voice, replay with `dstar_fec_mode: "on"` (`decoder-capture-needs.md` item 6) |
 | YSF | synthetic lock; FICH codec reference-pinned but **unwired**; voice **absent** | `TestFICHOnAirRecoversFromSingleBitFlip`; `TestDaemonCCDecodesYSF` (zero-filled FICH) | none | DN-mode IQ ≥ 10 s, pass 100 % FICH CRC, metric ≤ 4/100 bits at ≥ 12 dB (`samples/ysf/README.md`; audio-only removed) |
@@ -187,8 +186,7 @@ gophertrunk capture -freq 851062500 -sample-rate 2400000 -seconds 30 \
 `-center`/`-bandwidth` carve a narrowband slice through the same
 `ccdecoder.Downconverter` the daemon uses, so a 50 kHz slice of a
 2.4 MS/s grab is a small, shareable file; `-centers` records several
-sample-synchronous slices; `-decimate` keeps the full band at a lower
-rate. The command then reports what a replay would otherwise discover
+sample-synchronous slices. The command then reports what a replay would otherwise discover
 too late: `captureEffectiveRate` stamps the sidecar with the rate the
 hardware actually delivered; the carrier-offset consensus prints the
 measured offset and warns above `carrierOffsetWarnHz` (2000 Hz);
@@ -265,17 +263,16 @@ subject of
 says a close is a claim the problem is gone, earned when a failing-first
 regression passes *and* the reporter confirms, and that PRs say `Refs
 #N` until then. Every row above is a `Refs`, including the ones whose
-code is almost certainly right. The three sibling series show what the
-top rung looks like when it is reached — the
+code is almost certainly right. The three sibling series show the top rung reached — the
 [P25 playbook]({{ '/blog/deep-dives/p25-end-to-end-14-playbook/' | relative_url }}),
 the [DMR playbook]({{ '/blog/deep-dives/dmr-end-to-end-14-playbook/' | relative_url }})
 and [TETRA's open questions]({{ '/blog/deep-dives/tetra-end-to-end-14-testing-open-questions/' | relative_url }})
-each end on captures a reporter sent and runs a reporter confirmed — and
+end on captures reporters sent and runs they confirmed — and
 [Protocol Decoders 12]({{ '/blog/deep-dives/protocol-decoders-12-testing-decoders-without-radios/' | relative_url }})
 describes the synthetic layer every rung stands on. The legacy family's
-contribution is to show the ladder with the lower rungs occupied and the
-labels honest: eight protocols, one table, and for each a file name that
-does not exist yet.
+contribution is the ladder with its lower rungs occupied and the labels
+honest: eight protocols, one table, and for each a file that does not
+exist yet.
 
 ### How the ladder shaped the Go code
 
@@ -316,11 +313,10 @@ NXDN's `system_id`, `site_id` and `ran`.
 
 **What happens when a capture lands in samples/nxdn/?**
 `TestDaemonCCDecodesNXDNRealAir` stops skipping: under `go test -tags
-integration` it registers a mock SDR on the `.cfile`, boots the daemon
-with `nxdn_viterbi_mode: spec` on the sidecar's centre frequency, waits
-up to 3 s for `cc.locked`, and asserts the decoded SystemID, SiteID and
-frequency against the sidecar. The capture binary stays git-ignored; the
-sidecar is what gets committed.
+integration` it mounts the `.cfile` on a mock SDR, boots the daemon with
+`nxdn_viterbi_mode: spec` on the sidecar's centre, waits up to 3 s for
+`cc.locked`, and asserts SystemID, SiteID and frequency against the
+sidecar. The binary stays git-ignored; the sidecar is committed.
 
 **Why is NXDN the top capture priority?**
 Because its harness is fully ready and nothing has run through it.

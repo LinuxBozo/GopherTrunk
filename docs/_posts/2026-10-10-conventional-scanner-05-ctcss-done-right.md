@@ -1,6 +1,6 @@
 ---
 title: "The Conventional Scanner, Part 5: CTCSS Done Right — Exact Bins, Reverse Bins, Deviation Thresholds"
-description: "The three defects issue 1184 found in GopherTrunk's CTCSS gate and how ctcss.go fixes them: a Goertzel bin rounded to a 5 Hz grid that made 162.2 Hz open on 159.8, a threshold calibrated at 48 kHz but fed 2.4 MS/s, and a fixed floor needing 540 Hz of deviation no narrowband radio sends — replaced by exact bins, reverse bins and a 100 Hz deviation floor."
+description: "The three defects issue 1184 found in GopherTrunk's CTCSS gate and how ctcss.go fixes them: a Goertzel bin rounded to a 5 Hz grid so 162.2 Hz opened on 159.8, a threshold calibrated at 48 kHz but fed 2.4 MS/s, and a floor needing 540 Hz of deviation no narrowband radio sends; now exact bins, reverse bins, a 100 Hz floor."
 category: tutorials
 keywords: ctcss decoder sdr, ctcss squelch goertzel, ctcss tone not detected sdr scanner, 162.2 hz opens on 159.8, eia ctcss tone table, narrowband fm ctcss deviation, goertzel exact frequency bin, reverse bin tone rejection, ctcss 150.0 151.4 inseparable, gophertrunk conventional scanner
 tags: [conventional-scanner, ctcss, goertzel, tone-squelch, analog-fm, tutorial]
@@ -231,7 +231,7 @@ amplitude. 100 Hz keeps >10 dB margin under an NFM tone, and a carrier
 reverse-bin ratio holds.
 `TestCTCSSOpensOnEveryEIAToneAtNarrowbandDeviation` is the NFM regression:
 every EIA tone at 350 Hz deviation with 20 dB of noise must be present in
-at least 90 % of chunks after the first half second.
+≥ 90 % of chunks after the first half second.
 
 ## The rate trap and the real-air pin
 
@@ -261,8 +261,7 @@ scanner feeds it. `TestCTCSSDetectsRealAirToneAtSDRRate` demands the
 0 % for 94.8, 103.5 and 107.2 Hz;
 `TestCTCSSRejectsRealAirToneFreeCarrierAtSDRRate` demands 0 % on the
 tone-free slice; and `TestCTCSSRealAirOnlyTheSentToneOpens` sweeps all 51
-tones over both captures (skipped under `-short`). Against the old code the
-first of these reads 0 %.
+tones over both captures (skipped under `-short`). Against the old code the first reads 0 %.
 
 Verification is the strongest in this series so far. Offline, the real-air
 slices pin the production rate. On air, the project's record of the 24 Sep

@@ -1,6 +1,6 @@
 ---
 title: "The Conventional Scanner, Part 4: Squelch on the Channel, Not the Span — The In-Channel Power Meter"
-description: "How issue 1239 changed what squelch_dbfs measures: from the RMS power of the whole SDR span, which any other carrier or an auto-gain noise floor held above threshold, to the power inside a ±8 kHz channel filter after decimation to 48 kHz; the hysteresis and debounce that act on it, why it still moves with gain, and the per-channel gain key."
+description: "How issue 1239 changed what squelch_dbfs measures: from the RMS power of the whole SDR span, which any other carrier or an auto-gain noise floor held above threshold, to the power inside a ±8 kHz channel filter at 48 kHz; the hysteresis and debounce that act on it, why it still moves with gain, and per-channel gain."
 category: tutorials
 keywords: sdr scanner squelch dbfs, in-channel power squelch, rtl-sdr squelch opens on empty channel, carrier squelch vs tone squelch, channel filter 8 khz decimate, squelch hysteresis debounce scanner, per-channel gain scan list, noise quieting squelch not dbfs, issue 1239 conventional scanner, gophertrunk conventional scanner
 tags: [conventional-scanner, squelch, dbfs, gain, analog-fm, tutorial]

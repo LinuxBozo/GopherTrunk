@@ -42,8 +42,8 @@ decoder in the tree that has decoded a recording of a real transmitter.*
 **Key takeaways**
 
 - **FFSK is audio-band, so an audio recording is real evidence here.**
-  The tones survive FM demodulation; an MP3 of the discriminator output is
-  the signal the second stage expects, not a lost constellation.
+  An MP3 of the discriminator output is the signal the second stage
+  expects, not a lost constellation.
 - **The sync match is loose because the codeword check is tight.** A
   2-of-16 Hamming tolerance accepts ~0.21 % of random windows; the
   BCH(64,48) check that must follow rejects ~2⁻¹⁵ of them.
@@ -82,10 +82,9 @@ MPT 1327 ([reference]({{ '/reference/mpt-1327/' | relative_url }})) is the
 1988 UK Code of Practice still carrying taxi, transport and utility fleets.
 Its control channel is continuous 1200-baud CCIR FFSK — 1200 Hz for a
 binary 1, 1800 Hz for a 0 — modulated as audio on a 12.5 kHz NBFM carrier
-([FFSK]({{ '/reference/ffsk/' | relative_url }})). That one fact shapes
-the package: the information lives in the audio band, so the receiver is
-the shortest in the family and an audio recording of the discriminator is
-the signal the second stage expects.
+([FFSK]({{ '/reference/ffsk/' | relative_url }})). The information lives
+in the audio band, so the receiver is the shortest in the family and an
+audio recording of the discriminator is what the second stage expects.
 
 ```go
 // internal/radio/mpt1327/receiver/receiver.go (shape)
@@ -138,12 +137,11 @@ func (c Codeword) Kind() CodewordKind { return CodewordKind((c.Function >> 13) &
 func (c Codeword) FunctionPayload() uint16 { return uint16(c.Function & 0x1FFF) }
 ```
 
-The top four Function bits are the spec's Address Categorisation subfield,
-and `opcodes.go` names the Kinds the trunking layer acts on: `KindAloha`
-0x1 (ALH, the idle beacon), `KindAhoy` 0x2, `KindAhoyChan` 0x3 (AHYC, whose
-13-bit payload the package treats as a system identifier), `KindGoToChan`
-0x4 (GTC, payload = channel number), `KindAck` 0x5, `KindDisconnect` 0x6,
-`KindData` 0x7 and `KindEmergency` 0xE.
+The top four Function bits are the spec's Address Categorisation subfield;
+`opcodes.go` names `KindAloha` 0x1 (ALH, the idle beacon), `KindAhoy` 0x2,
+`KindAhoyChan` 0x3 (AHYC, whose payload the package treats as a system
+identifier), `KindGoToChan` 0x4 (GTC, payload = channel number), `KindAck`
+0x5, `KindDisconnect` 0x6, `KindData` 0x7 and `KindEmergency` 0xE.
 
 The check is `framing.BCHEncodeMPT1327` / `BCHDecodeMPT1327`
 ([BCH]({{ '/reference/bch-code/' | relative_url }})), whose header credits
@@ -196,8 +194,6 @@ the primitive; what runs is 48 + 15 + 1.
   <text x="468" y="76" text-anchor="middle" fill="var(--fg-muted)" font-size="8">15 · g 0x6815 · init 0x0001</text>
   <rect x="528" y="28" width="12" height="34" fill="none" stroke="var(--accent)"/>
   <text x="534" y="76" text-anchor="middle" fill="var(--fg-muted)" font-size="8">P</text>
-  <text x="600" y="48" text-anchor="middle" fill="var(--fg-muted)" font-size="8">1 error corrected</text>
-  <text x="600" y="60" text-anchor="middle" fill="var(--fg-muted)" font-size="8">2 detected</text>
   <line x1="20" y1="100" x2="660" y2="100" stroke="var(--fg-muted)" stroke-dasharray="2 3"/>
   <rect x="20" y="112" width="128" height="30" fill="none" stroke="var(--accent)"/>
   <text x="84" y="131" text-anchor="middle" fill="var(--accent)" font-size="9">CWSC 1100010011010111</text>
@@ -206,7 +202,6 @@ the primitive; what runs is 48 + 15 + 1.
   <rect x="348" y="112" width="200" height="30" fill="none" stroke="currentColor"/>
   <text x="448" y="131" text-anchor="middle" fill="currentColor" font-size="9">codeword 2 …</text>
   <text x="604" y="131" text-anchor="middle" fill="var(--fg-muted)" font-size="8">64 bits each</text>
-  <text x="340" y="160" text-anchor="middle" fill="var(--fg-muted)" font-size="8">a message: 16-bit sync, then back-to-back codewords at 1200 bit/s</text>
 </svg>
 <figcaption>The 48-bit information field the BCH path recovers, with the Kind nibble at the top of Function; the CWSC precedes the first codeword of every message and is the stream's only fixed pattern.</figcaption>
 </figure>
@@ -215,10 +210,9 @@ the primitive; what runs is 48 + 15 + 1.
 
 MPT 1327 has no frame sync in the P25 sense. It has the **Codeword
 Synchronisation Code** — `1100010011010111`, 0xC4D7 MSB-first — before the
-first codeword of every message, which `process.go` keeps as a 16-entry
-byte array so the matcher compares the receiver's one-bit-per-byte stream
-without packing. `findCWSC(buf, from, maxErrors)` returns the first window
-within Hamming distance `maxErrors`:
+first codeword of every message, kept in `process.go` as a 16-entry byte
+array. `findCWSC(buf, from, maxErrors)` returns the first window within
+Hamming distance `maxErrors`:
 
 ```go
 // internal/radio/mpt1327/process.go (shape)
@@ -232,24 +226,22 @@ for i := from; i <= end; i++ {
 }
 ```
 
-The tolerance is a trade the code states in numbers. With two errors
-allowed, a random 16-bit window matches with probability
-C(16,0) + C(16,1) + C(16,2) = 137 / 65536 ≈ 0.21 %;
-`TestFindCWSCFalsePositiveControl` draws 65 536 random windows and fails
-above 0.5 %. But a sync match alone never produces an event: the 64-bit
-window after it must pass `BCHDecodeMPT1327`, whose random-pass rate the
-comments put near 2⁻¹⁵, keeping the per-bit-position false-lock rate under
-1e-7. `TestFindCWSCWithinTolerance` walks the table — zero, one and two
-flips match at tolerance 2, three do not.
+The tolerance is a trade stated in numbers. With two errors allowed, a
+random 16-bit window matches with probability C(16,0) + C(16,1) + C(16,2)
+= 137 / 65536 ≈ 0.21 % (`TestFindCWSCFalsePositiveControl`, 65 536 random
+windows, ceiling 0.5 %). But a sync match alone never produces an event:
+the 64-bit window after it must pass `BCHDecodeMPT1327`, whose random-pass
+rate the comments put near 2⁻¹⁵, keeping the per-bit-position false-lock
+rate under 1e-7. `TestFindCWSCWithinTolerance` walks the table — zero, one
+and two flips match at tolerance 2, three do not.
 
-Alignment in `Process` is two-stage. Unaligned, it tries the CWSC first and
-on a hit locks at the bit after the sync, consuming forward at a fixed
-64-bit stride (38 under `BCHOff`). Only with no CWSC in the buffer does it
-fall back to sliding one bit at a time until a window both passes the check
-and parses as a recognised Address codeword. Aligned, each frame failing
-that test counts against `maxConsecBad` = 8; at eight it drops alignment
-and restarts one bit *after* the failed frame so it cannot re-lock to the
-same wrong offset. The buffer tail survives chunk boundaries
+Alignment in `Process` is two-stage: the CWSC first, locking at the bit
+after the sync and consuming at a fixed 64-bit stride (38 under `BCHOff`);
+with no CWSC in the buffer, a fallback slide one bit at a time until a
+window passes the check and parses as a recognised Address codeword.
+Aligned, each failing frame counts against `maxConsecBad` = 8; at eight it
+drops alignment and restarts one bit *after* the failed frame so it cannot
+re-lock to the same wrong offset. The buffer tail survives chunk boundaries
 (`TestProcessHandlesCodewordSpanningCalls`).
 
 Both knobs are per-system config: `mpt1327_bch_mode` (`ParseBCHMode`:
@@ -260,20 +252,19 @@ nonsense so `newMPT1327Pipeline` warns instead of guessing.
 
 ## From codeword to event
 
-`Ingest` is small. Data codewords (`TypeData`) are dropped. Under
-`SetStrictValidation(true)` unknown Kinds are dropped too
-(`TestStrictValidationDropsUnknownKind`). Aloha and AHYC are lock evidence;
-GTC is a grant.
+`Ingest` is small: data codewords are dropped, unknown Kinds too under
+`SetStrictValidation(true)` (`TestStrictValidationDropsUnknownKind`); Aloha
+and AHYC are lock evidence, GTC is a grant.
 
 The lock has a discipline the other legacy packages lack. A real control
 channel streams codewords continuously, so demanding two costs nothing —
 while one recognised codeword is what an off-channel P25 or DMR carrier
 produces by chance. `noteConfirmation`
 counts recognised Address codewords sharing one 7-bit Prefix; a different
-Prefix restarts the count at one. `newMPT1327Pipeline` sets
+Prefix restarts the count. `newMPT1327Pipeline` sets
 `SetMinConfirm(mpt1327ProdMinConfirm)` = 2, while `New` zero-values to
-lock-on-first so in-package fixtures still lock. `minconfirm_test.go` pins
-all four shapes, including a 1,2,1,2,… alternation that never locks
+lock-on-first for in-package fixtures. `minconfirm_test.go` pins the
+shapes, including a 1,2,1,2,… alternation that never locks
 (`TestMinConfirmAlternatingIdentityNeverLocks`).
 
 `LockState` carries `FrequencyHz`, the AHYC payload as `SystemID`, and the
@@ -301,14 +292,14 @@ The codeword layer is complete; the follow-the-call layer is not wired.
 
 Three kinds of evidence exist, pinning different layers.
 
-**Synthetic, in CI.** `process_bch_test.go` encodes codewords with the
-framing primitive and feeds the 64-bit form to `Process(BCHOn)`:
-`TestProcessBCHOnDecodesEncodedCodeword` (Aloha then GTC → lock and a
-channel-7 grant), `TestProcessBCHOnCorrectsSingleBitError` (bit 35 flipped,
-still locks), `TestProcessBCHOnDropsUncorrectableCodeword` (bits 20 and 33,
-no lock). `TestDaemonCCDecodesMPT1327` boots the daemon on a mock SDR
-playing `demod.ModulateFFSK` output — 100 Aloha codewords at 48 kHz on
-169.2125 MHz. Every one shares its encoder with the decoder: the
+**Synthetic, in CI.** `process_bch_test.go` feeds framing-encoded 64-bit
+codewords to `Process(BCHOn)`: `TestProcessBCHOnDecodesEncodedCodeword`
+(Aloha then GTC → lock and a channel-7 grant),
+`TestProcessBCHOnCorrectsSingleBitError` (bit 35 flipped, still locks),
+`TestProcessBCHOnDropsUncorrectableCodeword` (bits 20 and 33, no lock).
+`TestDaemonCCDecodesMPT1327` boots the daemon on `demod.ModulateFFSK`
+output — 100 Aloha codewords at 48 kHz on 169.2125 MHz. Every one shares
+its encoder with the decoder: the
 [self-consistent trap]({{ '/blog/solution-postmortem/from-the-issue-tracker-20-self-consistent-trap/' | relative_url }}).
 
 **Real audio, by hand.** `samples/mpt1327/` holds two sigidwiki MP3s of a
@@ -335,38 +326,37 @@ follow unwired.**
 
 ### How MPT 1327 shaped the Go code
 
-- **A bit-per-byte sync table.** `cwscPattern` is `[16]byte`, so the
-  matcher never packs the receiver's stream.
-- **Two information layouts, one struct.** `Codeword` carries `Op` only on
-  the 48-bit path (`TestLegacy38BitHelpersIgnoreOp`).
-- **Config parsers return `ok`.** `ParseBCHMode` / `ParseCWSCTolerance`
-  map the empty string to the production default and flag garbage.
+- **A bit-per-byte sync table.** `cwscPattern` is `[16]byte`; the matcher
+  never packs the stream.
+- **Two information layouts, one struct.** `Op` exists only on the 48-bit
+  path (`TestLegacy38BitHelpersIgnoreOp`).
+- **Config parsers return `ok`.** Empty string → production default;
+  garbage → a warning.
 - **Lock confirmation lives in the channel.** `minConfirm` defaults to
   lock-on-first; the connector raises it.
 
 ## Where this goes next
 
-Every FM-era decoder in Parts 3–6 ends the same way: a `trunking.Grant`
-with a channel number, and a frequency only if someone resolved it.
+Every FM-era decoder in Parts 3–6 ends in a `trunking.Grant` with a channel
+number, and a frequency only if someone resolved it.
 [Part 7]({{ '/blog/deep-dives/legacy-family-07-analog-voice-on-trunked-fm/' | relative_url }})
-follows that grant into the engine and the composer's `runFMChain` — the
-analog voice path, its hangtime, the recorder — and measures which of the
-four protocols can reach it today.
+follows that grant into the engine and the composer's `runFMChain`, and
+measures which of the four protocols can reach it today.
 
 ## FAQ
 
 **What does `mpt1327_cwsc_tolerance` do and why is the default 2?**
-It is the Hamming distance `findCWSC` accepts between a 16-bit window and
-the Codeword Synchronisation Code `1100010011010111`. Two of sixteen
-matches commercial receivers on noisy air; the 64-bit codeword that follows
-must still pass `BCHDecodeMPT1327`, so a loose sync does not loosen frame
-acceptance. Set `0` or `exact` for pre-stripped fixtures.
+The Hamming distance `findCWSC` accepts against the Codeword
+Synchronisation Code `1100010011010111`. Two of sixteen matches commercial
+receivers on noisy air, and the codeword that follows must still pass
+`BCHDecodeMPT1327`, so a loose sync does not loosen frame acceptance. Set
+`0` or `exact` for pre-stripped fixtures.
 
 **Does GopherTrunk correct errors in MPT 1327 codewords?**
 One bit per 64-bit codeword. `framing.BCHDecodeMPT1327` recomputes the
 15-bit check (generator 0x6815, seed 0x0001) and the parity; a single flip
-changes both and the syndrome names its position. A syndrome mismatch with
-matching parity means two or more errors, and the codeword is dropped.
+changes both and the syndrome names its position. Two or more errors are
+detected and the codeword dropped.
 
 **Can an MP3 of an MPT 1327 control channel be decoded?**
 Yes — FFSK rides audio-band tones, so FM-demodulated audio is what

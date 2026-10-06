@@ -45,8 +45,8 @@ repair that refuses to guess.*
 
 - **A tone-deciding front end is the wrong tool for this MSK.** Data is the
   running XOR of tone decisions, so one wrong tone complements the rest of
-  the block — measured: byte 11 inverted 80 bytes, 5/7 messages. The
-  coherent detector decodes 7/7.
+  the block (byte 11 inverted 80 bytes; 5/7 messages). The coherent detector
+  decodes 7/7.
 - **A 16-bit check over many candidates validates garbage.** Three parity
   errors give 512 candidates (≈0.8 % false accept); repairs are accepted
   only when unique AND printable.
@@ -77,10 +77,8 @@ repair that refuses to guess.*
 
 ## The block on the wire
 
-ACARS (ARINC 618 "VHF Category A/B") is 2400 bit/s on 131.550, 131.525,
-130.025, 129.125, 131.125 MHz and friends. Every character is 7-bit ASCII,
-sent LSB first, with **odd parity** in bit 7. One block, from `acars.go`'s
-package comment:
+ACARS (ARINC 618) is 2400 bit/s on 131.550 MHz and friends. Every character is 7-bit ASCII, sent LSB first, with **odd parity**
+in bit 7. One block, from `acars.go`'s package comment:
 
 ```text
 pre-key   ≥16 × 0xFF          one steady tone; lets the clock settle
@@ -93,14 +91,13 @@ BCS (2, low byte first) · DEL 0x7F
 ```
 
 The block check is CRC-16/KERMIT — reflected CRC-CCITT, polynomial `0x8408`,
-initial value 0, no final XOR — over every character from mode through the
-suffix **including the parity bits**; over body plus BCS it yields zero.
-`TestCRCIsKermit` pins the catalogue value `CRC("123456789") = 0x2189`,
-fixing polynomial, reflection and initial value independently of any frame.
+initial value 0, no final XOR — over mode through the suffix **including the
+parity bits**; over body plus BCS it yields zero. `TestCRCIsKermit` pins the
+catalogue value `CRC("123456789") = 0x2189` independently of any frame.
 
 Provenance: layout, parity sense, bit order, CRC convention and line code
-were read from acarsdec (GPL — protocol facts only, nothing ported) and
-confirmed in both directions. Three literal on-air blocks from acarsdec's
+were read from acarsdec (GPL — protocol facts only, nothing ported). Three
+literal on-air blocks from acarsdec's
 own `test.wav` pin the parser in `acars_test.go` (`realAirFrames`: LN-DYY
 with a `_d` label and no text, PH-BXR's `5V` downlink `KL1681`, G-DBCK's
 `BA031T`), and `TestEncoderReproducesRealAirFrames` demands `EncodeBlock`
@@ -196,12 +193,11 @@ sign of the real part is the bit. `TestDecodesAtLowSNR` records the sweep:
 ## A repair that refuses to guess
 
 `acars.Framer` hunts a 48-bit window — the last pre-key character plus
-`+ * SYN SYN SOH` — at ≤ `syncMaxErrors` = 2 in either polarity (the
-receiver's sign start state is unknown, so the complement is accepted and
-the block's bits inverted), collects characters to the ETX/ETB suffix, reads
-two BCS bytes and hands the block to `DecodeBlock`. A DEL with no suffix
-seen means a bit error hit the ETX/ETB; the three characters before it are
-suffix + BCS and the corrector gets a chance.
+`+ * SYN SYN SOH` — at ≤ `syncMaxErrors` = 2 in either polarity (the sign's
+start state is unknown, so the complement is accepted and the block's bits
+inverted), collects characters to the ETX/ETB suffix, reads two BCS bytes
+and hands the block to `DecodeBlock`. A DEL with no suffix seen means a bit
+error hit the ETX/ETB; the three characters before it are suffix + BCS.
 
 The CRC is linear (zero initial value, no final XOR), so a lone set bit's
 contribution depends only on how many bytes follow it and one
@@ -232,20 +228,20 @@ characters with 0..3 broken ones and a random BCS — the worst case, since
 the parity-located search runs every time — and demands **zero** accepted;
 without the guards 70 of them "repair" into CRC-valid garbage (the figure
 the `DecodeBlock` docstring records). `TestCorrectsSingleBitErrors` walks
-every single-bit position of a long block, BCS included;
+every single-bit position of a long block;
 `TestCorrectsThreeParityErrorsAndAdjacentPairs` requires ≥ 270/300 of each
 class repaired to the *right* block. `Corrected` rides to the log and panel
-as `fixed N`, so a repaired block is visible as one.
+as `fixed N`.
 
 ## On the scanner
 
-The config is one line on an AM channel, from `config.example.yaml`:
+The config is one line on an AM channel (`config.example.yaml`):
 
 ```yaml
 scanner:
   conventional:
     - label: "ACARS primary"
-      frequency_hz: 131550000   # also 131.525, 130.025, 129.125, 131.125 …
+      frequency_hz: 131550000
       mode: am
       decoders: [acars]
 ```
@@ -266,8 +262,7 @@ FFSK burst, so `holdMaxFor("acars")` returns `acarsScanHoldMax` = 1 s: a
 `Busy` decoder extends the scan window in 50 ms steps up to that, and while
 dwelling counts as activity so hangtime cannot cut a block
 (`TestACARSDecoderHoldsScanWindowForALongBlock`). And `Reset` clears every
-stage, framer included, on retune, so a block cut off by a hop is abandoned
-rather than completed from the next channel's bits.
+stage, framer included, on retune, so a block cut off by a hop is abandoned.
 `TestScannerDecodesACARSOnAMChannel` runs a synthetic transmission through
 the whole scanner at 2.4 MS/s and requires the production receiver to frame
 the block.
@@ -290,8 +285,7 @@ raw, and VDL Mode 2 is a different air interface.
 acarsdec's real-air `test.wav` (4-channel 12 kHz AM audio) to the fields
 acarsdec prints, and acarsdec decodes `SynthAudio`; with white noise added,
 the coherent detector decodes as many or more messages than acarsdec at
-every level tried. One lesson: acarsdec stalls on digitally silent leading
-audio, so give a synthetic file a noise floor first.
+every level tried.
 
 **Not yet on air.** The reporter's capture — rtl_fm AM audio at 12.5 kHz
 plus acarsdec's text decode — has not been replayed. `TestACARSReplay`
@@ -317,11 +311,10 @@ printed something."** A live scanner run on the reporter's rig then closes
 ACARS rides the scanner's data front end — the decimate-to-48 kHz,
 ±8 kHz-filtered channel IQ the dwell loop feeds every decoder on a channel.
 [Part 11]({{ '/blog/tutorials/conventional-scanner-11-mdc1200-fleetsync-on-scan-channels/' | relative_url }})
-reads that front end for the two FM-channel decoders it was built for,
-MDC1200 and FleetSync: why raw IQ decoded 0 of 2 bursts and the front end
-2 of 2 on the #1184 slices, how a busy decoder holds the window, why
-decoders ignore the tone gate — and the 28 September on-air MDC1200 run
-that used exactly this path.
+reads that front end for the FM-channel decoders it was built for, MDC1200
+and FleetSync: why raw IQ decoded 0 of 2 bursts and the front end 2 of 2 on
+the #1184 slices, why decoders ignore the tone gate, and the 28 September
+on-air MDC1200 run that used exactly this path.
 
 ## FAQ
 
@@ -333,11 +326,11 @@ and the `acars.message` event. Config validation rejects `acars` on an FM
 channel.
 
 **Why does GopherTrunk use a coherent MSK detector instead of deciding tones?**
-ACARS's tones encode whether a bit *changed*: data is the running XOR of
-tone decisions, so one wrong tone inverts the rest of the block (measured:
-byte 11 → 80 complemented bytes, 5/7 messages). The coherent detector in
-`msk.go` reads each bit from the absolute phase after de-rotating by k·π/2,
-so a noise hit costs one bit; it decodes 7/7.
+ACARS's tones encode whether a bit *changed*, so one wrong tone decision
+inverts the rest of the block (measured: byte 11 → 80 complemented bytes,
+5/7 messages). The coherent detector in `msk.go` reads each bit from the
+absolute phase after de-rotating by k·π/2, so a noise hit costs one bit; it
+decodes 7/7.
 
 **What does "fixed N" mean on an ACARS message?**
 `DecodeBlock` repaired N bits — up to three parity-located single-bit

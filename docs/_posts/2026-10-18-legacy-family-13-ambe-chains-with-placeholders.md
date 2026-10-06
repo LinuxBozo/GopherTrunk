@@ -42,27 +42,26 @@ the measurements which would settle it already exist in the DMR path.*
 **Key takeaways**
 
 - **The FEC is the codec's, the interleave is the protocol's.** Everything
-  in the three files except one function is a property of AMBE, shared
-  with the capture-verified DMR path.
-- **A placeholder that round-trips is the worst kind of bug to guess at.**
-  The split is sequential and labelled, with the inverse in lock-step, so
-  the swap is one function — and no test in the tree can fail until a
-  capture does.
-- **The composer wiring is production.** Three chains, one shared front
-  end builder, per-frame Golay counts into the recorder — only the table
-  behind them is provisional.
+  in the three files except one function is AMBE's, shared with the
+  capture-verified DMR path.
+- **A placeholder that round-trips cannot fail from inside.** The split is
+  sequential and labelled, inverse in lock-step, so the swap is one
+  function — and no test in the tree can fail until a capture does.
+- **The composer wiring is production.** Three chains, one front-end
+  builder, per-frame Golay counts into the recorder — only the table is
+  provisional.
 - **DMR already shows what the first capture looks like.** A Golay
-  histogram, a b0 continuity score and a per-frame diff against mbelib
-  told the DMR story; the same three instruments apply here unchanged.
+  histogram, a b0 continuity score and a per-frame diff against mbelib —
+  the same three instruments apply here unchanged.
 
 ## Cheat sheet
 
 | Concern | What it does | Where it lives |
 |---|---|---|
-| Shared FEC layer | Golay(23,12) C0/C1, C0-seeded C1 keystream, 49-bit assembly | `voice_ambe.go` in `internal/radio/{nxdn,dpmr,dstar}` (`DecodeVCHFrame`, `DecodeTCHFrame`, `DecodeDVVoiceBits`) |
+| Shared FEC layer | Golay(23,12) C0/C1, C0-seeded C1 keystream, 49-bit assembly | `internal/radio/{nxdn,dpmr,dstar}/voice_ambe.go` (`DecodeVCHFrame`, `DecodeTCHFrame`, `DecodeDVVoiceBits`) |
 | The placeholder | sequential C0\|C1\|C2\|C3 split of 72 bits, inverse in lock-step | `nxdnAMBEDeinterleave`, `dpmrAMBEDeinterleave`, `dstarAMBEDeinterleave` |
 | The real thing, for contrast | `rW/rX/rY/rZ` from szechyjs/dsd, capture-verified | `internal/radio/dmr/voice/ambefec.go` (`DecodeAMBEFrame`) |
-| Frame geometry | NXDN 4×72 in a 144-dibit Info field; dPMR 24 CCH + 144 TCH; D-STAR 72 of 96 | `nxdn/voice.go`, `nxdn/traffic.go`, `dpmr/voice.go`, `dpmr/traffic.go`, `dstar/voice.go` |
+| Frame geometry | NXDN 4×72 in a 144-dibit Info field; dPMR 24 CCH + 144 TCH; D-STAR 72 of 96 | `{nxdn,dpmr}/voice.go`, `{nxdn,dpmr}/traffic.go`, `dstar/voice.go` |
 | Composer chains | 48 kHz front end → receiver → traffic tracker → recorder | `internal/voice/composer/{nxdn,dpmr,dstar}_voice.go` |
 | Vocoder map | `nxdn`/`dpmr` → `ambe2-dmr`; `dstar` → `ambe2` | `internal/voice/recorder.go` (`DefaultVocoderForProtocol`), `cmd/gophertrunk/runtime.go` |
 | Error-aware sink | per-frame corrected-bit count drives the smoother | `errAwareRawSink`, `Recorder.WriteRawFrameWithErrors` |
@@ -86,12 +85,12 @@ vocoder payload in the same four steps:
 
 ```go
 // internal/radio/nxdn/voice_ambe.go (shape) — DecodeVCHFrame
-fr := nxdnAMBEDeinterleave(frame)              // 72 bits → C0[24] C1[23] C2[11] C3[14]
-c0data, c0errs := framing.GolayDecode23_12(c0cw) // fr[0][1..23]; fr[0][0] is ext parity
-ks := nxdnC1Keystream(c0data)                  // pr[0]=16·c0; pr[i]=(173·pr[i-1]+13849)&0xFFFF
+fr := nxdnAMBEDeinterleave(frame)                // 72 bits → C0[24] C1[23] C2[11] C3[14]
+c0data, c0errs := framing.GolayDecode23_12(c0cw) // fr[0][1..23]; fr[0][0] = ext parity
+ks := nxdnC1Keystream(c0data)                    // pr[i] = (173·pr[i-1] + 13849) & 0xFFFF
 for j := 0; j <= 22; j++ { fr[1][j] ^= ks[23-j] }
 c1data, c1errs := framing.GolayDecode23_12(c1cw)
-// ambe_d = C0:12 + C1:12 + C2:11 + C3:14 = 49 bits, MSB-first per field
+// ambe_d = C0:12 + C1:12 + C2:11 + C3:14 = 49 bits
 return out, clampErrs(c0errs) + clampErrs(c1errs), nil
 ```
 
@@ -102,11 +101,10 @@ is "identical to the 3600×2450 one". The Golay primitives are the shared
 sub-vector's −1 is clamped to 0 so the returned count stays a
 non-negative sum — the number the composer later hands the recorder.
 
-All of that is a property of the codec, not the radio protocol. The file
-comments say it directly: the FEC "is a property of the AMBE+2 codec,
-not of the radio protocol, so it is identical to
-`internal/radio/dmr/voice/ambefec.go`". And that DMR file is the control
-group. Its `DecodeAMBEFrame` runs the same Golay, keystream and assembly,
+All of that belongs to the codec. The file comments say so: the FEC "is
+a property of the AMBE+2 codec, not of the radio protocol, so it is
+identical to `internal/radio/dmr/voice/ambefec.go`". That DMR file is the
+control group. Its `DecodeAMBEFrame` runs the same Golay, keystream and assembly,
 but its first step reads
 
 ```go
@@ -116,10 +114,10 @@ fr[rY[i]][rZ[i]] = frame[2*i+1] & 1   // dibit i, low bit
 ```
 
 with `rW`, `rX`, `rY`, `rZ` as four 36-entry tables "verbatim from
-szechyjs/dsd" (`dmr_const.h`). That schedule has decoded a real
-transmission — [DMR End to End Part 11]({{ '/blog/deep-dives/dmr-end-to-end-11-ambe2-silence-frames/' | relative_url }})
+szechyjs/dsd" (`dmr_const.h`). That schedule has decoded real air —
+[DMR End to End Part 11]({{ '/blog/deep-dives/dmr-end-to-end-11-ambe2-silence-frames/' | relative_url }})
 diffed the committed #644 clip frame by frame against mbelib — which is
-what makes the three siblings' one divergent function so visible.
+what makes the siblings' one divergent function so visible.
 
 ## The placeholder, exactly
 
@@ -150,13 +148,12 @@ and cites CLAUDE.md's TETRA-CRC lesson "for why the table is not guessed".
 
 Why not guess? Because a guessed table that round-trips is undetectable
 from inside the tree. `TestVCHFrameRoundTrip`, `TestTCHFrameRoundTrip` and
-`TestDVVoiceBitsRoundTrip` each push 128 LCG-seeded payloads through
-`Encode*` and back and demand exact recovery; their comments say what
-they prove — "everything except the (capture-unknown) on-air interleave
-table, which round-trips by construction here". The `*CorrectsErrors`
-tests flip positions `{1, 5, 12, 24, 30, 40}` and expect the Golay layer
-to repair them, with a comment that gives the dependency away: "C0
-occupies on-air positions 0..23, C1 24..46 (sequential placeholder
+`TestDVVoiceBitsRoundTrip` push 128 seeded payloads through `Encode*` and
+back; their comments say what they prove — "everything except the
+(capture-unknown) on-air interleave table, which round-trips by
+construction here". The `*CorrectsErrors` tests flip positions
+`{1, 5, 12, 24, 30, 40}`, with a comment that gives the dependency away:
+"C0 occupies on-air positions 0..23, C1 24..46 (sequential placeholder
 layout)". When the real table lands, those positions move with it. This
 is the [self-consistent trap]({{ '/blog/solution-postmortem/from-the-issue-tracker-20-self-consistent-trap/' | relative_url }})
 made explicit on purpose: the split is not a hypothesis about the air but
@@ -165,7 +162,7 @@ labelled so nobody mistakes it for a claim.
 
 <figure class="lab-figure">
 <svg viewBox="0 0 680 200" width="680" height="200" role="img" aria-label="Two rows of 72 on-air bits: the shipped placeholder, four contiguous blocks C0 bits 0 to 23, C1 24 to 46, C2 47 to 57, C3 58 to 71; and DMR's real rW rX rY rZ schedule, 36 dibits scattered across C0 to C3. Both feed the same Golay, keystream and 49-bit assembly.">
-  <text x="340" y="14" text-anchor="middle" fill="currentColor" font-size="10" font-weight="bold">72 on-air bits → C0 (24) · C1 (23) · C2 (11) · C3 (14): the one protocol-specific step</text>
+  <text x="340" y="14" text-anchor="middle" fill="currentColor" font-size="10" font-weight="bold">72 on-air bits → C0 (24) · C1 (23) · C2 (11) · C3 (14)</text>
   <text x="8" y="54" fill="var(--fg-muted)" font-size="8">placeholder</text>
   <text x="8" y="65" fill="var(--fg-muted)" font-size="8">(nxdn/dpmr/dstar)</text>
   <rect x="100" y="40" width="190" height="26" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
@@ -176,7 +173,7 @@ labelled so nobody mistakes it for a claim.
   <text x="516" y="57" text-anchor="middle" fill="var(--accent)" font-size="8">C2 · 47..57</text>
   <rect x="560" y="40" width="110" height="26" fill="none" stroke="var(--accent)" stroke-width="1.5"/>
   <text x="615" y="57" text-anchor="middle" fill="var(--accent)" font-size="8">C3 · 58..71</text>
-  <text x="385" y="84" text-anchor="middle" fill="var(--fg-muted)" font-size="8">sequential split, encoder inverse in lock-step — round-trips by construction, labelled PLACEHOLDER</text>
+  <text x="385" y="84" text-anchor="middle" fill="var(--fg-muted)" font-size="8">sequential split, inverse in lock-step — round-trips by construction, labelled PLACEHOLDER</text>
   <text x="8" y="124" fill="var(--fg-muted)" font-size="8">DMR (real)</text>
   <text x="8" y="135" fill="var(--fg-muted)" font-size="8">rW/rX/rY/rZ</text>
   <rect x="100" y="110" width="570" height="26" fill="none" stroke="currentColor"/>
@@ -194,20 +191,17 @@ inside a burst, and the carve is transcribed from spec, not from a signal.
 
 **NXDN.** `nxdn/voice.go` reads the 144-dibit Information field of a
 traffic frame as 288 bits = `VCHVoiceFramesPerFrame` (4) × 72;
-`ExtractVCHFrames` decodes each and skips any whose FEC hard-fails.
-`nxdn/traffic.go`'s `TrafficChannel` runs its own outbound-FSW detector
-and collects `postSyncDibitsTraffic` = `LICHWireDibits` + `SACCHDibits` +
-`InfoFieldDibits` (8 + 32 + 144 = 184) per match, decodes the LICH, and
-routes only frames with `ParityOK` and `RFCh == RFChTraffic`; the SACCH
-is skipped. The CC path "is hardwired to CAC", so voice needs its own
-adapter.
+`ExtractVCHFrames` skips any frame whose FEC hard-fails. `nxdn/traffic.go`'s
+`TrafficChannel` runs its own outbound-FSW detector, collects
+`postSyncDibitsTraffic` = 8 LICH + 32 SACCH + 144 Info = 184 dibits per
+match, and routes only frames with `ParityOK` and `RFCh == RFChTraffic`;
+the SACCH is skipped.
 
 **dPMR.** `dpmr/voice.go` fixes `CCHDibits` 24, `TCHSubframeDibits` 36,
 `TCHFramesPerBurst` 4 and `TCHFieldDibits` 144, so `postSyncDibitsTraffic`
-= 168 — the whole 192-dibit frame minus the 24-dibit sync.
-`dpmr/traffic.go` runs FS1 and FS2 detectors at tolerance 1 (the
-superframe-start and mid-superframe voice syncs the CC path never uses),
-skips the CCH, and hands the 144-dibit TCH to `ExtractTCHFrames`. Its
+= 168 — the 192-dibit frame minus its sync. `dpmr/traffic.go` runs FS1
+and FS2 detectors at tolerance 1 (the voice syncs the CC path never
+uses), skips the CCH, and hands the TCH to `ExtractTCHFrames`. Its
 comment flags "the CCH width" among the spec-transcribed unknowns.
 
 **D-STAR.** [Part 11]({{ '/blog/deep-dives/legacy-family-11-dstar/' | relative_url }})
@@ -265,11 +259,11 @@ changelog records that dPMR's entry once pointed at 2400.
 ## What the first capture pins, and the DMR instruments that transfer
 
 `docs/decoder-capture-needs.md` asks for "dPMR / D-STAR voice (≥ 10 s IQ,
-48 kHz, clear voice)" and, for NXDN, a voice capture beside the control
-channel one, each with a `metadata.json`, and summarises the three confirmations in
-order — "its AMBE interleave table … plus the frame geometry and codebook
-choice". The DMR path shows what those confirmations look like as numbers, and
-none of the instruments is DMR-specific.
+48 kHz, clear voice)" and an NXDN voice capture beside the control-channel
+one, and names the three confirmations in order — "its AMBE interleave
+table … plus the frame geometry and codebook choice". The DMR path shows
+what those look like as numbers, and none of the instruments is
+DMR-specific.
 
 **The Golay histogram.** `VCHFrame.Errors`, `TCHFrame.Errors` and
 `DVFrame.Errors` already carry the corrected-bit counts. On the #1187
@@ -293,12 +287,11 @@ right one tracks.
 
 **The per-frame diff.** DMR's "computer voice" was settled by dumping
 `cur_mp` per frame from two mbelib lineages over a committed `.raw` clip,
-which refuted a wrong note and found the real bug in silence frames
-(b0 124/125) that reset the gain predictor 24 dB low. That fix lives in
-`unpackParams2450`, so NXDN and dPMR inherit it through `ambe2-dmr`
-automatically; D-STAR's 2400 base path has no silence-frame indicator by
-design ("Silence is not a separate AMBE+2 indicator", per `params.go`'s
-tone branch), and only a capture can say whether a real D-STAR stream
+which found the real bug in silence frames (b0 124/125) that reset the
+gain predictor 24 dB low. That fix lives in `unpackParams2450`, so NXDN
+and dPMR inherit it through `ambe2-dmr`; D-STAR's 2400 base path has no
+silence-frame indicator ("Silence is not a separate AMBE+2 indicator",
+per `params.go`), and only a capture can say whether a real D-STAR stream
 needs one. The `.raw` sidecar the recorder writes (`recordings.write_raw`) is the
 input that diff needs.
 
@@ -306,26 +299,24 @@ input that diff needs.
 
 The rule this series keeps returning to — a green synthetic is never an
 on-air pass — is written into these files more literally than anywhere
-else in the tree. The chains are **wired end to end** (the composer
-dispatches, the recorder renders, a call row and a WAV appear), **labelled
-experimental** (every start line says so), and **gated** (the PR
-convention is `Refs`, never `Closes`, until a reporter confirms;
-[From Spec to Shipping Part 14]({{ '/blog/deep-dives/from-spec-to-shipping-14-definition-of-verified/' | relative_url }})
-has the policy). "Verified" for each chain would mean three specific
-things in order: a Golay histogram at the floor under the real table, a
-geometry that yields frames at the protocol's cadence, and a b0 track
-that reads as speech under one codebook. Until a capture produces them,
-the honest sentence is `status.md`'s: NXDN, dPMR and D-STAR "are wired
-end-to-end through the composer but not yet verified on air".
+else. The chains are **wired end to end** (the composer dispatches, the
+recorder renders, a WAV appears), **labelled experimental** (every start
+line says so), and **gated** (`Refs`, never `Closes`, until a reporter
+confirms — [From Spec to Shipping Part 14]({{ '/blog/deep-dives/from-spec-to-shipping-14-definition-of-verified/' | relative_url }})
+has the policy). "Verified" for each chain would mean three things in order: a Golay
+histogram at the floor under the real table, frames at the protocol's
+cadence, and a b0 track that reads as speech under one codebook. Until a
+capture produces them, `status.md`'s sentence stands: NXDN, dPMR and
+D-STAR "are wired end-to-end through the composer but not yet verified
+on air".
 
 ### How the placeholders shaped the Go code
 
-- **One function per unknown, named for its protocol.** The split is
-  isolated so a capture-driven swap touches `nxdnAMBEDeinterleave` and its
-  inverse and nothing else.
+- **One function per unknown.** A capture-driven swap touches
+  `nxdnAMBEDeinterleave` and its inverse and nothing else.
 - **Encoders kept in lock-step on purpose.** `EncodeVCHFrame`,
-  `EncodeTCHFrame` and `EncodeDVVoiceBits` exist for tests, and their
-  comments say they must move with the decoder.
+  `EncodeTCHFrame` and `EncodeDVVoiceBits` exist for tests and must move
+  with the decoder.
 - **Error counts clamped, never dropped.** `clampErrs`/`clampGolayErrs`
   keep an uncorrectable sub-vector from poisoning the sum the smoother sees.
 - **Warnings at the top of the file.** Each `voice_ambe.go` opens with
@@ -344,18 +335,18 @@ file lands in `samples/`.
 ## FAQ
 
 **Is the NXDN voice decoder wrong, or just unverified?**
-Unverified, and precise about where. The Golay(23,12) coding, the
-C0-seeded C1 descramble and the 49-bit assembly are the AMBE+2 codec's
-and match the capture-verified DMR path; the 72-bit deinterleave
-(`nxdnAMBEDeinterleave`) is a sequential split labelled `PLACEHOLDER`, and
-the VCH carve and 2450-vs-2400 codebook are spec-transcribed. A real
-NXDN voice capture confirms those three.
+Unverified, and precise about where. The Golay(23,12) coding, C1
+descramble and 49-bit assembly are the AMBE+2 codec's and match the
+capture-verified DMR path; the 72-bit deinterleave (`nxdnAMBEDeinterleave`)
+is a sequential split labelled `PLACEHOLDER`, and the VCH carve and
+2450-vs-2400 codebook are spec-transcribed. A real NXDN voice capture
+confirms those three.
 
 **Why does dPMR use the `ambe2-dmr` vocoder?**
 Because ETSI TS 102 658 specifies the AMBE+2 half-rate codec — 2450 bps
 voice plus 1150 bps FEC — the 3600×2450 variant DMR and NXDN use, so
-`DefaultVocoderForProtocol` maps `"dpmr"` to `"ambe2-dmr"`. v1.1.2 fixed
-an earlier mapping to the 3600×2400 base codebook. The map's comment still
+`DefaultVocoderForProtocol` maps `"dpmr"` to `"ambe2-dmr"`; v1.1.2 fixed
+an earlier mapping to the 3600×2400 codebook. The map's comment still
 calls the choice one of the things a capture confirms.
 
 **How would a capture show the deinterleave table is wrong?**

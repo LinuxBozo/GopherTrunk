@@ -25,7 +25,7 @@ that put them there.*
 > neighbours and fills the systems report's "Neighbor sites". On an
 > operator's 467.9125 MHz rig it decoded two cells then garbage, later a
 > 1.5 GHz neighbour, then a 402.0125 MHz phantom that confirmed twice. Four
-> seams, in order: `macFragmentPayload` leaked the fill-bit indication on
+> seams: `macFragmentPayload` leaked the fill-bit indication on
 > MAC-FRAG and two flags on MAC-END (one stray bit per seam); `tmSDU` ran
 > to the block end instead of the MAC length indication, so fill bits became
 > phantom optional fields; the reassembly had no continuity check, so a
@@ -45,8 +45,8 @@ that put them there.*
   leaked tail repeats bit-identically on every rebroadcast, so a gate that
   waits for the same content twice promotes the garbage with the truth.
 - **A parser that reads a fixed prefix never notices a bad boundary.**
-  Every other TETRA L3 parser was fine with bits leaking past the PDU; the
-  one with trailing presence bits turned them into fields.
+  Every other L3 parser tolerated bits leaking past the PDU; the one with
+  trailing presence bits turned them into fields.
 - **An ML decoder always returns *something*.** `DecodeAACH` hands back the
   nearest RM(30,14) codeword for any input; its distance is the confidence,
   and a classification at distance 4–6 is a coin flip.
@@ -69,10 +69,10 @@ that put them there.*
 ## In this post
 
 - **Seven cells, two decoded** — a stray bit at every fragment seam.
-- **A neighbour at 1.5 GHz** — the TM-SDU that ran to the block end, and a reassembly with no memory of time.
-- **Confirmed twice, still wrong** — the 402.0125 MHz phantom and the instrument that outlived it.
-- **Reading the hex** — two transmissions in one PDU, and the three holes that let the splice through.
-- **The regressions, failing first** — literal field bits, synthetic chains, and the no-harm control.
+- **A neighbour at 1.5 GHz** — a TM-SDU that ran to the block end.
+- **Confirmed twice, still wrong** — the 402.0125 MHz phantom and the instrument.
+- **Reading the hex** — two transmissions in one PDU, three holes.
+- **The regressions, failing first** — literal field bits and synthetic chains.
 
 ## Seven cells, two decoded
 
@@ -84,10 +84,9 @@ fields. It is the TETRA analogue of the P25 adjacent status broadcast
 ([P25 End to End Part 10]({{ '/blog/deep-dives/p25-end-to-end-10-sites-roaming/' | relative_url }})).
 
 The broadcast is too long for one MAC block, so it arrives fragmented: a
-start-fragment MAC-RESOURCE, zero or more MAC-FRAG, then a MAC-END, each
-in a following signalling opportunity. On the operator's 120 s
-467.9125 MHz MRC capture it decoded the first ~two cells cleanly and
-garbage after them. **Deleting exactly one bit at the seam made all seven
+start-fragment MAC-RESOURCE, zero or more MAC-FRAG, then a MAC-END. On
+the operator's 120 s 467.9125 MHz MRC capture it decoded the first ~two
+cells and garbage after them. **Deleting exactly one bit at the seam made all seven
 advertised cells decode.** `macFragmentPayload` had skipped only the type
 and subtype on a MAC-FRAG — the fill-bit indication leaked into the
 payload — and only fill and length on a MAC-END, where the slot-granting
@@ -201,19 +200,18 @@ Three holes let a chain survive the losses that set a splice up:
    lands at 4–6, so a faded AACH was a coin-flip "control" or "traffic",
    and whenever it read "traffic" the chain kept going. The classification
    is trusted only at `errs ≤ aachClassifyMaxErrs` (2); an unconfident slot
-   abandons the chain. (Searching the other three rotations on unconfident
-   slots was tried and reverted: the extra 16 384-codeword searches took
-   the 120 s replay from 61 s to 139 s.)
+   abandons the chain. (Searching the other rotations on unconfident slots
+   was tried and reverted: it took the 120 s replay from 61 s to 139 s.)
 3. **Adjacency was four frames, with no grid.** It is now two frames plus
    jitter — `fragMaxGapDibits = 2*4*255 + 2*fragGridJitterDibits` — and the
    continuation must land on the chain's 255-dibit slot grid
    (`onChainSlotGrid`). The grid is load-bearing: the NCDB detector also
    emits spurious off-grid correlator hits (+92 and +163 dibits on the 4 Sep
-   captures), and a naive gap-between-emits check, the first attempt,
-   aborted every chain on this SCBS/timeshare carrier — neighbours 0/8.
+   captures), and a naive gap-between-emits check aborted every chain on
+   this SCBS/timeshare carrier — neighbours 0/8.
 
 <figure class="lab-figure">
-<svg viewBox="0 0 680 220" width="680" height="220" role="img" aria-label="A dibit-stream timeline on a 255-dibit slot grid. Transmission A's start fragment and MAC-FRAG arrive one frame apart; the slot where its MAC-END should arrive is lost; three frames later transmission B's MAC-END arrives. The old four-frame window spliced B's end onto A's chain; the new rule abandons the chain at the lost slot and refuses B's MAC-END as stale.">
+<svg viewBox="0 0 680 220" width="680" height="220" role="img" aria-label="A timeline on a 255-dibit slot grid: transmission A's start fragment and MAC-FRAG, then its lost MAC-END slot, then transmission B's MAC-END three frames later. The old window spliced B onto A; the new rule abandons A at the lost slot and refuses B as stale.">
   <text x="340" y="14" text-anchor="middle" fill="currentColor" font-size="10" font-weight="bold">fragment chain on the 255-dibit slot grid (one MCCH frame = 1020 dibits)</text>
   <line x1="30" y1="60" x2="650" y2="60" stroke="var(--fg-muted)"/>
   <g fill="var(--fg-muted)" font-size="8" text-anchor="middle">
@@ -246,8 +244,7 @@ trailing bits** after the neighbour list — killing the whole splice class
 even if a new hole appears — and logs the same `tl_sdu_hex`
 (`tetra: rejecting misframed d-nwrk-broadcast`). And neighbours **expire**
 after `neighbourExpiry` (30 min) without re-advertisement, aged only
-across *accepted* broadcasts so a CC outage expires nothing — ending the
-10-hour phantom pile-up.
+across *accepted* broadcasts so a CC outage expires nothing.
 
 ## The regressions, failing first
 
@@ -278,7 +275,7 @@ DBG tetra: abandoning TM-SDU fragment reassembly — awaiting rebroadcast (conti
 ```
 
 is the guard working, each abandon costing one broadcast cycle; the
-reporter had read the earlier wording as a parse bug, so the line now says
+reporter read the earlier wording as a parse bug, so the line now says
 what it is, and `frag_abandons` in the decode-status line tracks the rate
 ([Field Notebook Part 3]({{ '/blog/tutorials/field-notebook-03-tetra-decode-status/' | relative_url }})
 reads that line). Not closed: the §18.5.17 status optionals are surfaced
@@ -300,12 +297,12 @@ raw, their bit maps un-named until a capture confirms them.
 ## Where this goes next
 
 The next seam is not in a protocol at all. An Android user asked for an
-rtl_power-style sweep over rtl_tcp, got one, and then could not start the
-binary — because a Linux build with `CGO_ENABLED=0` still linked
-`libdl.so.2` through the ALSA player's `purego` loader.
+rtl_power-style sweep over rtl_tcp and could not start the binary: a
+Linux build with `CGO_ENABLED=0` still linked `libdl.so.2` through the
+ALSA player's `purego` loader.
 [Part 12]({{ '/blog/solution-postmortem/issue-tracker-s2-12-cgo-disabled-is-not-static/' | relative_url }})
 measures the dynamic section, adds the `nolibasound` tag and the
-`check-static.sh` gate, and reports what three phones then did.
+`check-static.sh` gate, and reports what three phones did.
 
 ## FAQ
 
@@ -318,10 +315,10 @@ deterministic garbage that repeated past the confirm-twice gate.
 
 **What does "abandoning TM-SDU fragment reassembly" in the log mean?**
 It is the continuity guard working, not a parse error. A control slot on
-the chain's slot grid decoded nothing (or only half), or its AACH could not
-be classified confidently, so the in-progress chain is dropped rather than
-spliced across the loss. The broadcast repeats within seconds;
-`frag_abandons` in the decode-status line counts the rate.
+the chain's grid decoded nothing or only half, or its AACH could not be
+classified confidently, so the chain is dropped rather than spliced
+across the loss. The broadcast repeats within seconds; `frag_abandons`
+counts the rate.
 
 **Why is an AACH decode only trusted at two or fewer errors?**
 `DecodeAACH` is a maximum-likelihood search over RM(30,14) that always

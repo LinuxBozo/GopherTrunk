@@ -42,7 +42,7 @@ on the same capture, that together cost the head of every PTT.*
 **Key takeaways**
 
 - **Redundancy is a property of independence, not of a count.** Fifty-four
-  checks drawn from overlapping 48-bit windows are not 24 independent extra
+  checks from overlapping 48-bit windows are not 24 independent extra
   equations; the false-accept rate was measured, not derived.
 - **The strongest evidence should fire the grant.** A CRC-decoded exact
   solve outranks four correlator hits, so waiting for the count only delayed
@@ -255,10 +255,10 @@ real rate: **7 of 1411 DNBs** — six
 correlator false alarms off the idle channel and one real, mildly errored
 burst of the third transmission — solved to seeds at which they decode
 nothing. That is not 2^-24; it is 5×10^-3 — at ~17 bursts per second, a
-flip-flop every few seconds on a weak stretch. It is the pattern
+flip-flop every few seconds on a weak stretch. It is the
 [Season 1 Part 20]({{ '/blog/solution-postmortem/from-the-issue-tracker-20-self-consistent-trap/' | relative_url }})
-describes from the other side: a correctness claim derived from the model's
-own assumptions, never measured against air.
+trap in a new dress: a correctness claim derived from the model's own
+assumptions, never measured against air.
 
 ## The gate, the rescue and what is still open
 
@@ -284,16 +284,16 @@ if s, ok := DMBurstScrambleSeed(b); ok && !t.pinned {
 ```
 
 A rejected solve is counted as `solve_rejects` in the status and ended
-lines ([Field Notebook Part 6]({{ '/blog/tutorials/field-notebook-06-dmo-status-line/' | relative_url }})
-reads them) and the burst decodes at the known seed instead — a rescue, not
-just a non-flip: the real errored burst of the third PTT yields **two
-speech frames at the true seed** once the bogus solve stops displacing it.
+lines ([Field Notebook Part 6]({{ '/blog/tutorials/field-notebook-06-dmo-status-line/' | relative_url }}))
+and the burst decodes at the known seed instead — a rescue, not just a
+non-flip: the real errored burst of the third PTT yields **two speech
+frames at the true seed** once the bogus solve stops displacing it.
 
 The regression is pinned against **literal capture bursts**.
 `GT_TETRA_DMO_DUMP` wrote the seven as fixtures; two are committed as `tetra/testdata/dmo_13sep_false_solve_0x00028b43.dnb`
-(the qualified real burst both the live pipeline and voice chain flipped
-on) and `…_0x0003d699.dnb` (a correlator false alarm) — rotation, 216 hard
-dibits and 216 receiver differentials exactly as the extractor emitted them.
+(the qualified real burst) and `…_0x0003d699.dnb` (a correlator false
+alarm) — rotation, hard dibits and receiver differentials exactly as the
+extractor emitted them.
 `TestDMSeedTrackerRejectsSolveThatDoesNotDecode` asserts that the solver
 *still* returns the bogus seed (the fixture still exercises the path), that
 neither burst decodes at it, that a tracker holding the verified
@@ -306,27 +306,25 @@ Operator-side, the config had `gain: 50` — 5 dB, as the startup WARN says
 **not** verified: grant-on-adoption and the pre-roll in the live daemon.
 Both were validated on the capture only; per #764/#771 the next live run
 decides. The same day's `siglab: capture started/ended/aborted` INFO lines
-landed too —
-[Field Notebook Part 9]({{ '/blog/tutorials/field-notebook-09-capture-lines/' | relative_url }})
-reads them.
+([Field Notebook Part 9]({{ '/blog/tutorials/field-notebook-09-capture-lines/' | relative_url }}))
+landed too.
 
 ## Where this goes next
 
-The next two parts leave DSP for the capture tooling the DMO work leaned
-on. The 15 Sep IPSC field material arrived as a 60 s "442.8125 MHz" grab in
-which neither repeater existed, because the SigLab form had coerced the
-centre with `Number()` and fallen back silently.
+The next two parts leave DSP for the capture tooling. The 15 Sep IPSC
+field material arrived as a 60 s "442.8125 MHz" grab in which neither
+repeater existed, because the SigLab form had coerced the centre with
+`Number()` and fallen back silently.
 [Part 7]({{ '/blog/solution-postmortem/issue-tracker-s2-07-capture-at-the-wrong-centre/' | relative_url }})
 follows that NaN from the text field to the tuner centre.
 
 ## FAQ
 
 **What is a false exact solve in GopherTrunk's TETRA DMO decoder?**
-A seed returned by `tetra.DMBurstScrambleSeed`'s soft-assisted
-reliable-check path (`solveTCHSeedReliableChecks`) at which the burst does
-not CRC-decode. The dense 158-equation solve cannot produce one; the sparse
-local checks can, because their 48-bit windows overlap and the "24
-redundant checks" are not independent. On the 13 Sep capture 7 of 1411 DNBs
+A seed returned by `tetra.DMBurstScrambleSeed`'s reliable-check path
+(`solveTCHSeedReliableChecks`) at which the burst does not CRC-decode. The
+dense 158-equation solve cannot produce one; the sparse local checks can,
+because their 48-bit windows overlap. On the 13 Sep capture 7 of 1411 DNBs
 solved falsely.
 
 **What does solve_rejects count in the DMO status line?**

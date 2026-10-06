@@ -253,11 +253,10 @@ and `TestConvScannerGainFailureKeepsScanning`.
 
 ## On air, and what is still absolute
 
-Both changes shipped in v1.2.3. The test prescription in the thread was
-specific: a fixed gain instead of `auto`, `squelch_dbfs` around −50 —
-expect to need a *lower* value than before, since the number is now the
-channel's — then check that noise with no carrier no longer opens a
-CTCSS/DCS channel. The reporter's reply on 5 Oct is the on-air verdict:
+Both changes shipped in v1.2.3. The thread's test prescription: a fixed
+gain instead of `auto`, `squelch_dbfs` around −50 — expect a *lower*
+value than before, since the number is now the channel's — then check
+that noise no longer opens a CTCSS/DCS channel. The reporter's reply on 5 Oct is the on-air verdict:
 v1.2.3 "resolved the CTCSS/gain/noise situation without degrading the
 scanning performance" on five FM and five air-band channels; air band now
 gets a higher gain, FM repeaters and intermod-prone frequencies a lower
