@@ -176,6 +176,28 @@ func (c *Composer) runP25Phase1VoiceChain(ctx context.Context, serial, system st
 	// so the voice channel's own LCO-0 LCs are how we tag a decoded
 	// alias with the right radio.
 	var lastSourceID uint32
+	// publishSource backfills the call's source radio from an LCO-0 link
+	// control. A grant set up by a Group Voice Channel Update – Explicit
+	// (opcode 0x03) carries no source unit, so the voice channel's LC is
+	// the only place the keyed radio is named (#1242: every call on such a
+	// site logged SRC=0). Published only when the source changes — every
+	// LDU1 repeats the same LC — so a reply from another radio still
+	// updates it. The engine's backfill is additive.
+	var publishedSourceID uint32
+	publishSource := func(src uint32) {
+		if src == 0 || src == publishedSourceID || c.bus == nil {
+			return
+		}
+		publishedSourceID = src
+		c.bus.Publish(events.Event{
+			Kind: events.KindCallSourceUpdate,
+			Payload: trunking.CallSourceUpdate{
+				DeviceSerial: serial,
+				SourceID:     src,
+				At:           time.Now().UTC(),
+			},
+		})
+	}
 	// publishMotorolaAlias surfaces a completed voice-channel talker
 	// alias on the bus (the affiliation tracker binds it onto the RID).
 	// Shared by the LDU1 link-control path and the TDULC terminator
@@ -309,6 +331,7 @@ func (c *Composer) runP25Phase1VoiceChain(ctx context.Context, serial, system st
 							src := uint32(content[6])<<16 | uint32(content[7])<<8 | uint32(content[8])
 							if src != 0 {
 								lastSourceID = src
+								publishSource(src)
 							}
 						}
 					}
@@ -430,6 +453,7 @@ func (c *Composer) runP25Phase1VoiceChain(ctx context.Context, serial, system st
 							"tg", lc.TalkgroupID, "src", lc.SourceID)
 						if lc.LCFormat == phase1.LCOGroupVoiceChannelUser && lc.SourceID != 0 {
 							lastSourceID = lc.SourceID
+							publishSource(lc.SourceID)
 						}
 					}
 				}
