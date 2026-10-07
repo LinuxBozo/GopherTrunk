@@ -32,6 +32,8 @@ const DB_CEIL = 0;
 // bin→x mapping so a peak in the analyzer lines up vertically with its
 // streak in the waterfall below.
 const ANALYZER_H = 160;
+// How long an open stream may go without a frame before the panel says so.
+const STALL_MS = 4_000;
 
 // Mirrors SocketStatus from api/reconnectingSocket. "gone" is terminal: the
 // stream stopped retrying because the device is not coming back.
@@ -52,6 +54,12 @@ export function Spectrum() {
   const [bookmarkList, setBookmarkList] = useState<Bookmark[]>([]);
 
   const [hover, setHover] = useState<{ hz: number; db: number } | null>(null);
+  // Free-form tune entry (MHz). Click-to-tune only reaches frequencies
+  // inside the current span, so an SDR no decoder has tuned yet (centre
+  // 0 Hz) needs a typed frequency to get anywhere.
+  const [tuneText, setTuneText] = useState("");
+  // True once the stream has been open for a while without a single frame.
+  const [stalled, setStalled] = useState(false);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const analyzerRef = useRef<HTMLCanvasElement | null>(null);
@@ -156,6 +164,33 @@ export function Spectrum() {
     return () => stream.close();
   }, [cfg, selected]);
 
+  // Flag a connected stream that delivers nothing, so the panel explains
+  // the empty canvas instead of looking broken.
+  useEffect(() => {
+    setStalled(false);
+    if (conn !== "open" || latest) return;
+    const t = window.setTimeout(() => setStalled(true), STALL_MS);
+    return () => window.clearTimeout(t);
+  }, [conn, latest, selected]);
+
+  const handleTuneSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selected) return;
+    const hz = parseTuneMHz(tuneText);
+    if (hz == null) {
+      setError(`"${tuneText}" is not a frequency — enter MHz, e.g. 162.550`);
+      return;
+    }
+    try {
+      await tuneSpectrumDevice(cfg, selected, hz);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const selectedDevice = devices.find((d) => d.serial === selected);
+
   // Convert a click on the canvas into a centre frequency and post
   // it to the tune endpoint. Maps the click X position back through
   // the FFT-shifted bin layout: leftmost bin = (centerHz -
@@ -232,6 +267,24 @@ export function Spectrum() {
               </option>
             ))}
           </select>
+          <form className="flex items-center gap-1" onSubmit={handleTuneSubmit}>
+            <input
+              className="bg-surface border border-border rounded px-2 py-1 w-24 font-mono"
+              placeholder="MHz"
+              inputMode="decimal"
+              aria-label="Tune the SDR to a centre frequency in MHz"
+              value={tuneText}
+              onChange={(e) => setTuneText(e.target.value)}
+              disabled={!selected}
+            />
+            <button
+              type="submit"
+              className="border border-border rounded px-2 py-1 hover:bg-surface"
+              disabled={!selected || tuneText.trim() === ""}
+            >
+              Tune
+            </button>
+          </form>
           <ConnPill state={conn} />
         </div>
         }
@@ -240,6 +293,17 @@ export function Spectrum() {
       {error && (
         <div className="rounded border border-red-700/40 bg-red-900/20 text-red-200 text-xs px-3 py-2">
           {error}
+        </div>
+      )}
+
+      {stalled && (
+        <div
+          role="status"
+          className="rounded border border-amber-700/40 bg-amber-900/20 text-amber-200 text-xs px-3 py-2"
+        >
+          {selectedDevice?.role === "voice"
+            ? "No IQ from this SDR yet: a voice SDR only streams while it is following a call. Pick the control SDR to watch the band, or wait for a call."
+            : "No IQ from this SDR yet. The daemon starts its stream when you open this view; if nothing arrives, check the daemon log for an SDR or stream error."}
         </div>
       )}
 
@@ -306,6 +370,19 @@ function cursorXRatio(canvas: HTMLCanvasElement, clientX: number): number {
 function xRatioToHz(frame: SpectrumFrame, xRatio: number): number {
   const sampleRate = frame.sample_rate_hz;
   return frame.center_hz - sampleRate / 2 + sampleRate * xRatio;
+}
+
+// parseTuneMHz parses a typed centre frequency in MHz ("162.55", or with a
+// decimal comma "162,55") to Hz. Returns null for anything that is not a
+// positive finite number — never a silent fallback (a NaN that quietly
+// became "no change" is how a typed frequency got lost in Signal Lab).
+export function parseTuneMHz(text: string): number | null {
+  const t = text.trim().replace(",", ".");
+  if (!/^\d+(\.\d+)?$/.test(t)) return null;
+  const mhz = Number(t);
+  if (!Number.isFinite(mhz) || mhz <= 0) return null;
+  const hz = Math.round(mhz * 1e6);
+  return hz > 0xffffffff ? null : hz;
 }
 
 // formatHz renders a frequency for the hover readout. Mirrors the

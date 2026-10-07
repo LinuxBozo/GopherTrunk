@@ -23,8 +23,11 @@ import (
 // Devices picker delegates to the spectrum provider so the capture and
 // spectrum device lists stay identical.
 type captureProvider struct {
-	sp      *spectrumProvider
-	brokers map[string]*iqtap.Broker
+	// viewerIQ keeps an otherwise-idle SDR streaming while this view is
+	// open (Daemon.acquireViewerIQ); nil = just Subscribe.
+	viewerIQ viewerIQFunc
+	sp       *spectrumProvider
+	brokers  map[string]*iqtap.Broker
 }
 
 func newCaptureProvider(pool *sdr.Pool, brokers map[string]*iqtap.Broker, log *slog.Logger) *captureProvider {
@@ -56,6 +59,7 @@ func (p *captureProvider) CaptureStream(ctx context.Context, serial string, seco
 	center := br.CenterHz()
 	target := int64(seconds) * int64(rate)
 
+	defer p.viewerIQ.acquire(serial)()
 	sub := br.Subscribe()
 	defer sub.Close()
 

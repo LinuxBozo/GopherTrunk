@@ -959,6 +959,20 @@ confirmation before any close-as-completed.
   the FULL input rate plus a receiver (`internal/scanner/symbolscope/scope.go`), nothing is
   pooled, and Dashboard + Scanner + Plots each mount `useSignalQuality` while Histogram opens a
   fourth. Several open tabs = several full DSP chains. Pooling them is still open work.
+- **"Spectrum waterfall works on the example config, blank after saving my own" (Discord,
+  Oct 2026) = no decoder was streaming the SDR, NOT the API mutation/auth settings.** An iqtap
+  broker only fans IQ to subscribers while a PRIMARY `StreamIQ` session runs; the example
+  config's example P25 system makes the CC decoder stream the control SDR, so a config with
+  `trunking.systems: []` (what the config builder emits before systems are added) left every
+  live view — Spectrum, scopes, mixer, Signal Lab capture — on a silent subscription. Views
+  now call `Daemon.acquireViewerIQ` (`viewer_iq.go`), which drives `StreamIQ` itself while a
+  view is open on an SDR with no primary, and a single-channel decoder claiming the serial
+  later preempts it (`openSingleChannelIQ`). It deliberately skips `role: voice` SDRs (the
+  composer streams those through the raw pool device, OUTSIDE the broker — a viewer stream
+  would collide with the next call) and the conventional scanner's SDR. The broker's
+  `Streaming` is now a session COUNT, not a flag (an old session ending no longer reports a
+  new one stopped). The Spectrum panel gained a typed MHz tune entry (an untuned SDR sits at
+  0 Hz, out of click-to-tune reach) and a hint when an open stream delivers nothing.
 - **`soapyremote: SDR overruns … host_drops` is a DOWNSTREAM signal, not a driver bug.**
   `sendOrDrop` (`internal/sdr/soapyremote/driver.go`) only sheds when the consumer stops draining
   a ~400 ms / ~1084-chunk channel, and it drops the OLDEST queued chunk, so each event is an IQ

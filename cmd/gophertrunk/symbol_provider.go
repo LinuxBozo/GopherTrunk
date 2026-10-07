@@ -26,6 +26,9 @@ import (
 // is acceptable, and the broker fan-out never back-pressures the
 // production control-channel decode.
 type symbolProvider struct {
+	// viewerIQ keeps an otherwise-idle SDR streaming while this view is
+	// open (Daemon.acquireViewerIQ); nil = just Subscribe.
+	viewerIQ   viewerIQFunc
 	pool       *sdr.Pool
 	brokers    map[string]*iqtap.Broker
 	sampleRate uint32
@@ -144,6 +147,7 @@ func (p *symbolProvider) OpenSymbolStream(ctx context.Context, serial, proto str
 		return nil, nil, fmt.Errorf("symbol: %w", err)
 	}
 
+	release := p.viewerIQ.acquire(serial)
 	sub := br.Subscribe()
 
 	go func() {
@@ -165,6 +169,7 @@ func (p *symbolProvider) OpenSymbolStream(ctx context.Context, serial, proto str
 	cleanup := func() {
 		cancel()
 		sub.Close()
+		release()
 	}
 	return wireOut, cleanup, nil
 }

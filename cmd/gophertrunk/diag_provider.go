@@ -27,6 +27,9 @@ import (
 // spectrum_provider.go pattern). Defer until profiling shows the
 // wins.
 type diagProvider struct {
+	// viewerIQ keeps an otherwise-idle SDR streaming while this view is
+	// open (Daemon.acquireViewerIQ); nil = just Subscribe.
+	viewerIQ   viewerIQFunc
 	pool       *sdr.Pool
 	brokers    map[string]*iqtap.Broker
 	sampleRate uint32
@@ -83,6 +86,7 @@ func (p *diagProvider) OpenIQStream(ctx context.Context, serial string, targetRa
 		return nil, nil, fmt.Errorf("diag: %w", err)
 	}
 
+	release := p.viewerIQ.acquire(serial)
 	sub := br.Subscribe()
 	internalOut := make(chan diag.IQFrame, 8)
 	wireOut := make(chan api.IQFrame, 8)
@@ -130,6 +134,7 @@ func (p *diagProvider) OpenIQStream(ctx context.Context, serial string, targetRa
 	cleanup := func() {
 		cancel()
 		sub.Close()
+		release()
 	}
 	return wireOut, cleanup, nil
 }
