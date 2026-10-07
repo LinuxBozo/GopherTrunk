@@ -7,6 +7,15 @@ for tagged releases.
 
 ## [Unreleased]
 
+### Fixed
+- **P25 Phase 1 calls set up by an explicit channel update logged no radio ID
+  (#1242).** Opcode 0x03 (Group Voice Channel Update – Explicit) carries no
+  source unit, so those grants arrive with source 0. The keyed radio is named in
+  the voice channel's LDU1 link control, which the Phase 1 voice chain already
+  decoded but never published. It now publishes a `call.source` update whenever
+  the talker changes, as the DMR and P25 Phase 2 chains do, so the call log,
+  live view and recording sidecar carry the radio ID.
+
 ## [v1.2.4] — 2026-10-06
 
 ### Fixed
